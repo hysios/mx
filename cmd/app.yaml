@@ -26,6 +26,7 @@ commands:
     usage: "startup gateway"
     description: "startup http gateway server"
     action: |
+      printf("startup gateway server listen on '%s'\n", ctx.addr)
       listenServer(ctx.addr, newGateway())
     flags:
       - name: addr

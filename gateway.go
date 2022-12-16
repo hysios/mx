@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
+	"github.com/hysios/mx/discovery"
 )
 
 // Gateway grpc gateway
@@ -15,9 +16,11 @@ type Gateway struct {
 	// gwmux      *runtime.ServeMux
 	// muxOptions []runtime.ServeMuxOption
 
-	serve     *http.Server
-	prevAddr  string
-	discovery *ServiceDiscovery // service discovery
+	serve      *http.Server
+	prevAddr   string
+	discovery  *ServiceDiscovery // service discovery
+	routers    []map[string]http.Handler
+	notFounder http.Handler
 }
 
 // Middleware grpc gateway middleware
@@ -63,27 +66,49 @@ func (g *Gateway) buildRouter() *mux.Router {
 		r.Use(mux.MiddlewareFunc(m))
 	}
 
+	for _, router := range g.routers {
+		for path, handler := range router {
+			r.Handle(path, handler)
+		}
+	}
+
+	r.NotFoundHandler = g.notFounder
+
 	return r
 }
 
-func (g *Gateway) Init() error {
-	g.serve = g.createServer()
-
+func (g *Gateway) initDiscovery() {
 	if g.discovery == nil {
 		g.discovery = &ServiceDiscovery{}
 	}
+}
 
-	g.discovery.Discovery(func(desc *ServiceDesc) {
+func (g *Gateway) init() error {
+	g.serve = g.createServer()
+	g.initDiscovery()
+
+	g.discovery.Discovery(func(desc *discovery.ServiceDesc) {
 
 	})
 	// register grpc server into gateway
 	return nil
 }
 
+func (g *Gateway) HandleFunc(path string, handler func(http.ResponseWriter, *http.Request)) {
+	g.routers = append(g.routers, map[string]http.Handler{path: http.HandlerFunc(handler)})
+}
+
+func (g *Gateway) NotFoundFunc(handler http.Handler) {
+	g.notFounder = handler
+}
+
+func (g *Gateway) AddServer(s *http.Server) {
+}
+
 func (g *Gateway) Serve(addr string) error {
 	g.prevAddr = addr
 
-	if err := g.Init(); err != nil {
+	if err := g.init(); err != nil {
 		return err
 	}
 
@@ -92,7 +117,7 @@ func (g *Gateway) Serve(addr string) error {
 
 func (g *Gateway) ServeTLS(addr string, certFile, keyFile string) error {
 	g.prevAddr = addr
-	if err := g.Init(); err != nil {
+	if err := g.init(); err != nil {
 		return err
 	}
 

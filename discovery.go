@@ -1,18 +1,18 @@
 package mx
 
-import "context"
+import (
+	"context"
+
+	"github.com/hysios/mx/discovery"
+)
 
 type ServiceDiscovery struct {
-	ch           chan *ServiceDesc
-	discoveryFns []func(desc *ServiceDesc)
+	ch           chan *discovery.ServiceDesc
+	discoveryFns []func(desc *discovery.ServiceDesc)
 	closefn      context.CancelFunc
 }
 
-type ServiceDesc struct {
-	Name string
-}
-
-func (discover *ServiceDiscovery) Discovery(discovry func(desc *ServiceDesc)) {
+func (discover *ServiceDiscovery) Discovery(discovry func(desc *discovery.ServiceDesc)) {
 	discover.init()
 
 	discover.discoveryFns = append(discover.discoveryFns, discovry)
@@ -26,7 +26,7 @@ func (discover *ServiceDiscovery) Close() error {
 
 func (discover *ServiceDiscovery) init() {
 	if discover.ch == nil {
-		discover.ch = make(chan *ServiceDesc)
+		discover.ch = make(chan *discovery.ServiceDesc)
 	}
 
 	if discover.closefn == nil {
@@ -38,6 +38,16 @@ func (discover *ServiceDiscovery) init() {
 }
 
 func (discover *ServiceDiscovery) run(ctx context.Context) error {
+	discovery.Range(func(name string, ctor func() discovery.ServiceDiscover) {
+		srvDiscover := ctor()
+		go func() {
+			joinch := srvDiscover.DiscoveryJoin()
+			for v := range joinch {
+				discover.ch <- v
+			}
+		}()
+	})
+
 	for {
 		select {
 		case desc := <-discover.ch:
