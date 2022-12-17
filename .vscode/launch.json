@@ -5,15 +5,23 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Launch Server",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/example",
+            "cwd": "${workspaceFolder}",
+            "args": [
+                "-serve"
+            ]
+        },
+        {
             "name": "Launch Package",
             "type": "go",
             "request": "launch",
             "mode": "auto",
-            "program": "${workspaceFolder}/cmd",
-            "cwd": "${workspaceFolder}",
-            "args": [
-                "gw"
-            ]
+            "program": "${workspaceFolder}/example",
+            "cwd": "${workspaceFolder}"
         }
     ]
 }
