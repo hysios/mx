@@ -11,7 +11,7 @@ const helloProto = `syntax = "proto3";
 
 package hello;
 
-option go_package = "github.com/hysios/mx/example/pb;pb";
+option go_package = "github.com/hysios/mx_example/pb;pb";
 
 import "google/api/annotations.proto";
 import "google/protobuf/any.proto";
@@ -58,7 +58,7 @@ func TestParse(t *testing.T) {
 	t.Logf("protofile % #v", pretty.Formatter(protofile))
 	// 写出结果比较，验证 protofile 是否正确
 	assert.Equal(t, "hello", protofile.Pkg.Name)
-	// assert.Equal(t, "github.com/hysios/mx/example/proto", protofile.PkgPath)
+	// assert.Equal(t, "github.com/hysios/mx_example/proto", protofile.PkgPath)
 	assert.Equal(t, "HelloRequest", protofile.Messages[0].Name)
 	assert.Equal(t, "HelloResponse", protofile.Messages[1].Name)
 	assert.Equal(t, "HelloService", protofile.Services[0].Name)

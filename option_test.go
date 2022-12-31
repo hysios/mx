@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
-	pb "github.com/hysios/mx/example/gen/proto"
 	"github.com/hysios/mx/internal/delegate"
+	pb "github.com/hysios/mx_example/gen/proto"
 	"google.golang.org/grpc"
 )
 

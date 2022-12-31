@@ -5,9 +5,9 @@ import (
 	"testing"
 
 	"github.com/hysios/mx"
-	pb "github.com/hysios/mx/example/gen/proto"
 	"github.com/hysios/mx/registry"
 	"github.com/hysios/mx/registry/agent"
+	pb "github.com/hysios/mx_example/gen/proto"
 )
 
 func TestMain(m *testing.M) {
