@@ -12,7 +12,31 @@
             "program": "${workspaceFolder}/example",
             "cwd": "${workspaceFolder}",
             "args": [
-                "-serve"
+                "-serve",
+                "1"
+            ]
+        },
+        {
+            "name": "Launch Server 2",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/example",
+            "cwd": "${workspaceFolder}",
+            "args": [
+                "-serve",
+                "2"
+            ]
+        },
+        {
+            "name": "Launch Gateway",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/example",
+            "cwd": "${workspaceFolder}",
+            "args": [
+                "-gateway",
             ]
         },
         {

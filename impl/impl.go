@@ -6,7 +6,7 @@ import (
 
 	"github.com/gorilla/handlers"
 	"github.com/hysios/mx"
-	_ "github.com/hysios/mx/discovery/consul"
+	_ "github.com/hysios/mx/registry/provider/consul"
 )
 
 func NewGateway() *mx.Gateway {
