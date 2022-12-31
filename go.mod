@@ -12,7 +12,6 @@ require (
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/hnhuaxi/appcli v0.0.0-20221211110146-2f13d745fb57
 	github.com/hnhuaxi/platform v0.1.2
-	github.com/hysios/mx_example v0.0.0
 	github.com/kr/pretty v0.3.1
 	github.com/prometheus/client_golang v1.14.0
 	github.com/tj/assert v0.0.3
@@ -75,5 +74,3 @@ require (
 	gopkg.in/check.v1 v1.0.0-20200227125254-8fa46927fb4f // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-replace github.com/hysios/mx_example v0.0.0 => ../example

@@ -3,7 +3,7 @@ package tests
 import (
 	"testing"
 
-	pb "github.com/hysios/mx_example/gen/proto"
+	pb "github.com/hysios/mx/_example/gen/proto"
 	"github.com/tj/assert"
 	"google.golang.org/protobuf/encoding/prototext"
 	"google.golang.org/protobuf/proto"
