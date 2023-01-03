@@ -1,0 +1,12 @@
+package {{.PkgName}}
+
+import (
+	"context"
+{{ range .Imports }}
+{{ . }}
+{{ end }}    
+)
+
+{{ .ServiceStruct }}
+
+{{ .ServiceImplements }}

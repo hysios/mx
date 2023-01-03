@@ -1,21 +1,29 @@
 package main
 
 import (
-	_ "embed"
-	"strings"
-
 	"os"
 
-	"github.com/hnhuaxi/appcli"
+	"github.com/hysios/mx/logger"
+	"github.com/urfave/cli/v2"
+	"go.uber.org/zap"
 )
 
-//go:embed app.yaml
-var appSource string
-
-var app = appcli.App{
-	Source: strings.NewReader(appSource),
+func main() {
+	(&cli.App{
+		Name:  "mx",
+		Usage: "mx is a bootstrap tool for microservices gateway",
+		Commands: []*cli.Command{
+			&cli.Command{
+				Name:        "gen",
+				Usage:       "generate a microservices stubs",
+				Subcommands: genSubCmds(),
+			},
+		},
+	}).Run(os.Args)
 }
 
-func main() {
-	_ = app.Execute(os.Args)
+func LogError(err error) {
+	if err != nil {
+		logger.Cli.Error("run command failed", zap.Error(err))
+	}
 }

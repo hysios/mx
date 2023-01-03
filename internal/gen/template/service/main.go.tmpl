@@ -1,0 +1,13 @@
+package main
+
+import (
+{{ range .Imports }}
+{{ . -}}
+{{ end }}   
+)
+
+func main() {
+    // Services Register
+	srv := service.New("{{ .Vars.ServiceName }}", &{{ .PkgName }}.{{ .Vars.ServiceName }}{}, service.WithServiceDesc(&pb.{{ .Vars.ServiceName }}_ServiceDesc))
+	srv.Start()
+}

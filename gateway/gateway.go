@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/hysios/mx"
+	"github.com/hysios/mx/logger"
 	"github.com/hysios/mx/middleware"
 )
 
@@ -56,6 +57,8 @@ func New(optfns ...GatewayOptFunc) *mx.Gateway {
 
 	if opts.Logger != nil {
 		gw.Logger = opts.Logger
+	} else {
+		gw.Logger = logger.Cli
 	}
 
 	if opts.Middlewares != nil {

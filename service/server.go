@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_auth "github.com/grpc-ecosystem/go-grpc-middleware/auth"
@@ -40,6 +41,7 @@ type Server struct {
 	grpcserver  *grpc.Server
 	grpcOptions []grpc.ServerOption
 	ln          net.Listener
+	logger      *zap.Logger
 
 	unaryInterceptors  []grpc.UnaryServerInterceptor
 	streamInterceptors []grpc.StreamServerInterceptor
@@ -53,6 +55,10 @@ func New(name string, impl any, optfns ...ServerOptionFunc) *Server {
 		}
 	}
 
+	if opts.Logger == nil {
+		opts.Logger = logger.Cli
+	}
+
 	validService(name, impl, opts.ServiceDesc)
 
 	return &Server{
@@ -61,6 +67,7 @@ func New(name string, impl any, optfns ...ServerOptionFunc) *Server {
 		impl:               impl,
 		unaryInterceptors:  make([]grpc.UnaryServerInterceptor, 0),
 		streamInterceptors: make([]grpc.StreamServerInterceptor, 0),
+		logger:             opts.Logger,
 	}
 }
 
@@ -182,6 +189,10 @@ func (s *Server) Serve(lns net.Listener) error {
 		return err
 	}
 
+	go func() {
+		time.Sleep(time.Millisecond * 500)
+		s.logger.Info("server start", zap.String("name", s.Name), zap.String("address", lns.Addr().String()))
+	}()
 	return s.grpcserver.Serve(lns)
 }
 

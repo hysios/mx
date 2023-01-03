@@ -229,6 +229,7 @@ func (gw *Gateway) Serve(addr string) error {
 		return err
 	}
 
+	gw.Logger.Info("gateway start", zap.String("addr", addr))
 	return http.ListenAndServe(addr, gw)
 }
 

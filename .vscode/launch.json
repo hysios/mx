@@ -46,6 +46,26 @@
             "mode": "auto",
             "program": "${workspaceFolder}/example",
             "cwd": "${workspaceFolder}"
-        }
+        },
+        {
+            "name": "Launch gen service",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/cmd",
+            "cwd": "${workspaceFolder}",
+            "args": [
+                "gen",
+                "service",
+                "--name",
+                "test",
+                "--pkg-name",
+                "play.test",
+                "-o",
+                "tmp",
+                "-m",
+                "GetUser:GET:UserRequest{id:int32 name:string}:UserResponse{id:int32 name:string}"
+            ]
+        },
     ]
 }
