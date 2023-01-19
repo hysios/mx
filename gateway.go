@@ -11,6 +11,7 @@ import (
 	"github.com/hnhuaxi/platform/utils"
 	"github.com/hysios/mx/internal/delegate"
 	"github.com/hysios/mx/logger"
+	"github.com/hysios/mx/provisioning"
 	"github.com/hysios/mx/registry"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
@@ -20,6 +21,7 @@ import (
 // Gateway grpc gateway
 type Gateway struct {
 	ApiPrefix string
+	Logger    *zap.Logger // logger
 
 	// middleware chain
 	middlewares              []Middleware                     // middleware chain
@@ -35,11 +37,11 @@ type Gateway struct {
 	srvMuxConns              utils.Map[string, *Muxer]        // service muxer connections
 	srvImpls                 utils.Map[string, any]           // service implementations
 	srvNameIdxs              []string                         // service name index
-	Logger                   *zap.Logger                      // logger
 	ctx                      context.Context                  // context
 	closefn                  context.CancelFunc               // close function
 	clientUnaryInterceptors  []grpc.UnaryClientInterceptor    // client unary interceptors
 	clientStreamInterceptors []grpc.StreamClientInterceptor   // client stream interceptors
+	registers                []ServiceRegister                // service registers
 }
 
 type serviceConn struct {
@@ -389,6 +391,9 @@ func (gw *Gateway) init() error {
 
 	gw.registry.Discovery(gw.handleDiscovery)
 	go gw.registry.Start(ctx)
+	gw.initGWServer()
+
+	provisioning.Init(gw)
 
 	if err := gw.setupServers(ctx); err != nil {
 		return err
@@ -416,6 +421,8 @@ func (gw *Gateway) handleDiscovery(desc registry.RegistryMessage) {
 				gw.addServiceConn(desc.Desc.Service, desc.Desc.ID, conn)
 				gw.Logger.Debug("service connected", zap.String("service", desc.Desc.Service), zap.String("id", desc.Desc.ID), zap.String("target", desc.Desc.TargetURI))
 			}
+		} else if desc.Desc.FileDescriptor != nil {
+			// gw.addService()
 		}
 		// g.addService(desc.Service, desc.Callback, desc.Conn)
 	case registry.ServiceLeave:

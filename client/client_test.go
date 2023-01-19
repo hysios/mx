@@ -15,7 +15,7 @@ func TestMain(m *testing.M) {
 		ID:        "EchoService",
 		Service:   "EchoService",
 		TargetURI: "localhost:50051",
-		Protocol:  "grpc",
+		Type:      "grpc",
 		Address:   "localhost:50051",
 		Namespace: "default",
 	})

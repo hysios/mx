@@ -8,7 +8,8 @@ import (
 
 type Service interface {
 	ServiceName() string
-	Invoke(ctx context.Context, method string, args, reply interface{}) error
+	Register(ctx context.Context, gw *Gateway) error
+	// Invoke(ctx context.Context, method string, args, reply interface{}) error
 }
 
 type Initer interface {

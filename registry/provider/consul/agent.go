@@ -7,12 +7,17 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"reflect"
 	"strconv"
 	"syscall"
 	"time"
 
 	"github.com/hashicorp/consul/api"
 	"github.com/hysios/mx/registry"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protodesc"
+	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/runtime/protoimpl"
 )
 
 type AgentOption struct {
@@ -82,11 +87,35 @@ func (c *consulAgent) Register(desc registry.ServiceDesc) error {
 		host = "127.0.0.1"
 	}
 
+	var meta = map[string]string{
+		"service_type": desc.Type,
+	}
+
+	if desc.FileDescriptor != nil {
+		b, err := c.marshalFiledescriptor(desc.FileDescriptor)
+		if err != nil {
+			return err
+		}
+
+		if desc.FileDescriptorKey == "" {
+			desc.FileDescriptorKey = desc.FileDescriptor.Path()
+		}
+
+		meta["file_descriptor_key"] = desc.FileDescriptorKey
+		if _, err := c.cli.KV().Put(&api.KVPair{
+			Key:   fmt.Sprintf("mx/registry/protofile/%s", desc.FileDescriptorKey),
+			Value: b,
+		}, nil); err != nil {
+			return err
+		}
+	}
+
 	if err = agent.ServiceRegister(&api.AgentServiceRegistration{
 		ID:        desc.ID,
 		Name:      desc.Service,
 		Port:      port,
 		Address:   host,
+		Meta:      meta,
 		Namespace: desc.Namespace,
 		Check: &api.AgentServiceCheck{
 			CheckID:                        "service:" + desc.ID,
@@ -130,6 +159,35 @@ func (c *consulAgent) updateSchedule(desc registry.ServiceDesc) error {
 	return nil
 }
 
+func (c *consulAgent) marshalFiledescriptor(desc protoreflect.FileDescriptor) (b []byte, err error) {
+	descProto := protodesc.ToFileDescriptorProto(desc)
+	b, err = proto.MarshalOptions{AllowPartial: true, Deterministic: true}.Marshal(descProto)
+	return
+}
+
+func (c *consulAgent) getFileDescriptor(key string) (desc protoreflect.FileDescriptor, err error) {
+	var (
+		pair *api.KVPair
+	)
+
+	pair, _, err = c.cli.KV().Get(fmt.Sprintf("mx/registry/protofile/%s", key), nil)
+	if err != nil {
+		return
+	}
+
+	if pair == nil {
+		err = fmt.Errorf("file descriptor not found: %s", key)
+		return
+	}
+
+	out := protoimpl.DescBuilder{
+		GoPackagePath: reflect.TypeOf(struct{}{}).PkgPath(),
+		RawDescriptor: pair.Value,
+	}.Build()
+
+	return out.File, nil
+}
+
 func (c consulAgent) Update(serviceID, output, status string) error {
 	var (
 		agent = c.cli.Agent()
@@ -169,12 +227,24 @@ func (c *consulAgent) Lookup(serviceName string, optfns ...registry.LookupOption
 
 	var descs []registry.ServiceDesc
 	for _, service := range services {
+		if service.Meta["service_type"] == "grpc_server" {
+			continue
+		}
+		var filedescriptor protoreflect.FileDescriptor
+		if service.Meta["file_descriptor_key"] != "" {
+			if desc, err := c.getFileDescriptor(service.Meta["file_descriptor_key"]); err == nil {
+				filedescriptor = desc
+			}
+		}
+
 		descs = append(descs, registry.ServiceDesc{
-			ID:        service.ID,
-			Service:   service.Service,
-			Namespace: service.Namespace,
-			TargetURI: c.resolverURI(service),
-			Address:   fmt.Sprintf("%s:%d", service.Address, service.Port),
+			ID:                service.ID,
+			Service:           service.Service,
+			Namespace:         service.Namespace,
+			TargetURI:         c.resolverURI(service),
+			Address:           fmt.Sprintf("%s:%d", service.Address, service.Port),
+			FileDescriptorKey: service.Meta["file_descriptor_key"],
+			FileDescriptor:    filedescriptor,
 		})
 	}
 

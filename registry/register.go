@@ -1,5 +1,7 @@
 package registry
 
+import "google.golang.org/protobuf/reflect/protoreflect"
+
 type ServiceDiscover interface {
 	Notify() chan RegistryMessage
 }
@@ -13,13 +15,15 @@ type Agent interface {
 type ServiceKind int
 
 type ServiceDesc struct {
-	ID        string
-	Kind      ServiceKind
-	Service   string
-	TargetURI string
-	Protocol  string
-	Address   string
-	Namespace string
+	ID                string
+	Kind              ServiceKind
+	Service           string
+	TargetURI         string
+	Type              string
+	Address           string
+	Namespace         string
+	FileDescriptorKey string
+	FileDescriptor    protoreflect.FileDescriptor
 }
 
 var (

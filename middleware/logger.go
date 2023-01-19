@@ -10,6 +10,6 @@ import (
 
 func LoggerMiddleware() mx.Middleware {
 	return func(h http.Handler) http.Handler {
-		return handlers.LoggingHandler(os.Stdout, h)
+		return handlers.CombinedLoggingHandler(os.Stdout, h)
 	}
 }

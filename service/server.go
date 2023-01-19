@@ -182,9 +182,11 @@ func (s *Server) Serve(lns net.Listener) error {
 	s.teardown()
 
 	if err := agent.Register(registry.ServiceDesc{
-		ID:      s.GetID(),
-		Service: s.Name,
-		Address: lns.Addr().String(),
+		ID:             s.GetID(),
+		Service:        s.Name,
+		Type:           "grpc_server",
+		Address:        lns.Addr().String(),
+		FileDescriptor: s.opts.FileDescriptor,
 	}); err != nil {
 		return err
 	}

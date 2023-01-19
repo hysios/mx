@@ -2,6 +2,8 @@ package gateway
 
 import (
 	"github.com/hysios/mx"
+	"github.com/hysios/mx/logger"
+	"github.com/hysios/mx/provisioning"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 )
@@ -39,4 +41,25 @@ func WithClientStreamInterceptor(interceptors ...grpc.StreamClientInterceptor) G
 		o.ClientStreamInterceptors = interceptors
 		return nil
 	}
+}
+
+func evaluteOption(optfns ...GatewayOptFunc) *GatewayOption {
+	var opts = &GatewayOption{}
+	provisioning.Init(opts)
+
+	for _, fn := range optfns {
+		if err := fn(opts); err != nil {
+			panic(err)
+		}
+	}
+
+	return opts
+}
+
+func init() {
+	provisioning.Provision(func(opts *GatewayOption) {
+		if opts.Logger == nil {
+			opts.Logger = logger.Logger
+		}
+	})
 }

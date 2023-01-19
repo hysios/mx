@@ -5,11 +5,16 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/golang/protobuf/proto"
 	"github.com/hashicorp/consul/api"
 	"github.com/hysios/mx/logger"
 	"github.com/hysios/mx/registry"
 	"github.com/hysios/mx/registry/agent"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/reflect/protodesc"
+	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/reflect/protoregistry"
+	"google.golang.org/protobuf/types/descriptorpb"
 )
 
 func NewConsulProvider() registry.ServiceDiscover {
@@ -80,6 +85,31 @@ func (c *consulDiscovery) init() error {
 	return nil
 }
 
+func (c *consulDiscovery) getFileDescriptor(key string) (desc protoreflect.FileDescriptor, err error) {
+	var (
+		pair *api.KVPair
+	)
+
+	pair, _, err = c.cli.KV().Get(fmt.Sprintf("mx/registry/protofile/%s", key), nil)
+	if err != nil {
+		return
+	}
+
+	if pair == nil {
+		err = fmt.Errorf("file descriptor not found: %s", key)
+		return
+	}
+
+	out := &descriptorpb.FileDescriptorProto{}
+	err = proto.Unmarshal(pair.Value, out)
+	if err != nil {
+		return
+	}
+
+	desc, err = protodesc.NewFile(out, protoregistry.GlobalFiles)
+	return
+}
+
 func (c *consulDiscovery) Run() error {
 	c.init()
 
@@ -120,6 +150,23 @@ func (c *consulDiscovery) Run() error {
 					TargetURI: c.resolverURI(services[id]),
 				}
 
+				if serviceType, ok := services[id].Meta["service_type"]; ok {
+					desc.Type = serviceType
+					if serviceType != "grpc_server" {
+						continue
+					}
+				}
+
+				if services[id].Meta["file_descriptor_key"] != "" {
+					desc.FileDescriptorKey = services[id].Meta["file_descriptor_key"]
+					filedescriptor, err := c.getFileDescriptor(desc.FileDescriptorKey)
+					if err != nil {
+						logger.Logger.Error("getFileDescriptor", zap.Error(err))
+						continue
+					}
+					desc.FileDescriptor = filedescriptor
+				}
+
 				if len(c.msgch) < cap(c.msgch) {
 					c.msgch <- registry.RegistryMessage{
 						Method: registry.ServiceJoin,
@@ -136,7 +183,7 @@ func (c *consulDiscovery) Run() error {
 						Desc: registry.ServiceDesc{
 							ID:        id,
 							Service:   c.shadow[id].Service,
-							Protocol:  "",
+							Type:      "",
 							Address:   c.shadow[id].Address,
 							Namespace: c.shadow[id].Namespace,
 						},

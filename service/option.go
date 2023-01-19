@@ -3,6 +3,7 @@ package service
 import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 type RegisterOption struct {
@@ -18,6 +19,7 @@ type ServerOption struct {
 	ServiceRegistrar Registrar
 	Logger           *zap.Logger
 	NoRegister       bool
+	FileDescriptor   protoreflect.FileDescriptor
 }
 
 type ServerOptionFunc func(*ServerOption) error
@@ -53,6 +55,13 @@ func WithNamespace(ns string) ServerOptionFunc {
 func WithNoRegister() ServerOptionFunc {
 	return func(o *ServerOption) error {
 		o.NoRegister = true
+		return nil
+	}
+}
+
+func WithFileDescriptor(fd protoreflect.FileDescriptor) ServerOptionFunc {
+	return func(o *ServerOption) error {
+		o.FileDescriptor = fd
 		return nil
 	}
 }

@@ -18,6 +18,7 @@ func main() {
 				Usage:       "generate a microservices stubs",
 				Subcommands: genSubCmds(),
 			},
+			provisionCmd(),
 		},
 	}).Run(os.Args)
 }
