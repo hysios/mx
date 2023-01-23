@@ -50,8 +50,8 @@ func (m *Muxer) Add(id string, conn grpc.ClientConnInterface) bool {
 	return true
 }
 
-// Del is used to remove a connection by service id from the muxer.
-func (m *Muxer) Del(id string) grpc.ClientConnInterface {
+// Remove is used to remove a connection by service id from the muxer.
+func (m *Muxer) Remove(id string) grpc.ClientConnInterface {
 	m.connLock.Lock()
 	defer m.connLock.Unlock()
 
@@ -68,14 +68,14 @@ func (m *Muxer) Del(id string) grpc.ClientConnInterface {
 // Invoke performs a unary RPC and returns after the response is received
 // into reply.
 func (m *Muxer) Invoke(ctx context.Context, method string, args interface{}, reply interface{}, opts ...grpc.CallOption) error {
-	return m.doing(func(c abstractConn) error {
+	return m.do(func(c abstractConn) error {
 		return c.Conn.Invoke(ctx, method, args, reply, opts...)
 	})
 }
 
 // NewStream begins a streaming RPC.
 func (m *Muxer) NewStream(ctx context.Context, desc *grpc.StreamDesc, method string, opts ...grpc.CallOption) (stream grpc.ClientStream, err error) {
-	err = m.doing(func(c abstractConn) error {
+	err = m.do(func(c abstractConn) error {
 		stream, err = c.Conn.NewStream(ctx, desc, method, opts...)
 		return err
 	})
@@ -83,7 +83,7 @@ func (m *Muxer) NewStream(ctx context.Context, desc *grpc.StreamDesc, method str
 	return
 }
 
-func (m *Muxer) doing(fn func(abstractConn) error) error {
+func (m *Muxer) do(fn func(abstractConn) error) error {
 	m.connLock.RLock()
 	defer m.connLock.RUnlock()
 

@@ -1,4 +1,4 @@
-package registry
+package discovery
 
 import "google.golang.org/protobuf/reflect/protoreflect"
 

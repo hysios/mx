@@ -2,17 +2,15 @@ package mx
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/gorilla/mux"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
-	"github.com/hashicorp/go-multierror"
 	"github.com/hnhuaxi/platform/utils"
-	"github.com/hysios/mx/internal/delegate"
+	"github.com/hysios/mx/discovery"
 	"github.com/hysios/mx/logger"
 	"github.com/hysios/mx/provisioning"
-	"github.com/hysios/mx/registry"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -24,24 +22,20 @@ type Gateway struct {
 	Logger    *zap.Logger // logger
 
 	// middleware chain
-	middlewares              []Middleware                     // middleware chain
-	muxOptions               []runtime.ServeMuxOption         // grpc-gateway mux options
-	gwmux                    *runtime.ServeMux                // grpc-gateway mux instance
-	serve                    *http.Server                     // http server
-	prevAddr                 string                           // previous listen address
-	registry                 *registry.ServiceRegistry        // service discovery registry
-	routers                  []map[string]http.Handler        // custom routers
-	notFounder               http.Handler                     // not found handler
-	srvRegisters             utils.Map[string, *srvRegister]  // service register
-	srvConnections           utils.Map[string, []serviceConn] // service connections
-	srvMuxConns              utils.Map[string, *Muxer]        // service muxer connections
-	srvImpls                 utils.Map[string, any]           // service implementations
-	srvNameIdxs              []string                         // service name index
-	ctx                      context.Context                  // context
-	closefn                  context.CancelFunc               // close function
-	clientUnaryInterceptors  []grpc.UnaryClientInterceptor    // client unary interceptors
-	clientStreamInterceptors []grpc.StreamClientInterceptor   // client stream interceptors
-	registers                []ServiceRegister                // service registers
+	middlewares              []Middleware                   // middleware chain
+	muxOptions               []runtime.ServeMuxOption       // grpc-gateway mux options
+	gwmux                    *runtime.ServeMux              // grpc-gateway mux instance
+	serve                    *http.Server                   // http server
+	prevAddr                 string                         // previous listen address
+	discovery                *discovery.ServiceDiscovery    // service discovery registry
+	routers                  []map[string]http.Handler      // custom routers
+	notFounder               http.Handler                   // not found handler
+	services                 utils.Map[string, Service]     // services
+	ctx                      context.Context                // context
+	closefn                  context.CancelFunc             // close function
+	clientUnaryInterceptors  []grpc.UnaryClientInterceptor  // client unary interceptors
+	clientStreamInterceptors []grpc.StreamClientInterceptor // client stream interceptors
+	run                      runqueue
 }
 
 type serviceConn struct {
@@ -70,9 +64,6 @@ type (
 type Middleware func(http.Handler) http.Handler
 
 func (gw *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if gw.serve == nil {
-		gw.serve = gw.createServer()
-	}
 
 	gw.serve.Handler.ServeHTTP(w, r)
 }
@@ -98,136 +89,42 @@ func (gw *Gateway) AddClientStreamInterceptor(interceptors ...grpc.StreamClientI
 	gw.clientStreamInterceptors = append(gw.clientStreamInterceptors, interceptors...)
 }
 
-func (gw *Gateway) addService(name string, srvReg *srvRegister) {
-	_, loaded := gw.srvRegisters.LoadOrStore(name, srvReg)
-
-	if !loaded {
-		gw.srvNameIdxs = append(gw.srvNameIdxs, name)
+func (gw *Gateway) RegisterService(service Service) error {
+	if _, ok := gw.services.Load(service.ServiceName()); ok {
+		return fmt.Errorf("service %s already registered", service.ServiceName())
 	}
-}
+	gw.services.Store(service.ServiceName(), service)
 
-func (gw *Gateway) addServiceConn(serviceName string, id string, conn *grpc.ClientConn) bool {
-	_, ok := gw.srvRegisters.Load(serviceName)
-	if !ok {
-		return false
-	}
-
-	serverConns, ok := gw.srvConnections.Load(serviceName)
-	if !ok {
-		serverConns = []serviceConn{}
-	}
-
-	serverConns = append(serverConns, serviceConn{
-		ServiceID: id,
-		Conn:      conn,
+	return gw.run.call(Setup, func() {
+		if err := service.Register(gw.ctx, gw); err != nil {
+			panic(err)
+		}
 	})
-
-	gw.srvConnections.Store(serviceName, serverConns)
-
-	muxConn, _ := gw.srvMuxConns.LoadOrStore(serviceName, &Muxer{})
-	return muxConn.Add(id, conn)
 }
 
-func (gw *Gateway) hasConnected(serviceName string, id string) bool {
-	serverConns, ok := gw.srvConnections.Load(serviceName)
-	if !ok {
-		return false
-	}
-
-	for _, conn := range serverConns {
-		if conn.ServiceID == id {
-			return true
-		}
-	}
-
-	return false
+func (gw *Gateway) GetService(name string) (Service, bool) {
+	return gw.services.Load(name)
 }
 
-func (gw *Gateway) addServiceImpl(serviceName string, impl any) bool {
-	_, ok := gw.srvRegisters.Load(serviceName)
-	if !ok {
-		return false
-	}
+func (gw *Gateway) setup() error {
+	gw.init()
+	gw.gwmux = runtime.NewServeMux(
+		gw.buildMuxOptions()...,
+	)
+	gw.serve = gw.createServer(gw.gwmux)
+	gw.discovery.Discovery(gw.discoveryService)
 
-	gw.srvImpls.Store(serviceName, impl)
-	return true
-}
+	go gw.discovery.Start(gw.ctx)
+	provisioning.Init(gw)
 
-func (gw *Gateway) removeServiceConn(serviceName string, id string) bool {
-	serverConns, ok := gw.srvConnections.Load(serviceName)
-	if !ok {
-		return false
-	}
-
-	var newServerConns []serviceConn
-	for _, conn := range serverConns {
-		if conn.ServiceID != id {
-			newServerConns = append(newServerConns, conn)
-		}
-	}
-
-	gw.srvConnections.Store(serviceName, newServerConns)
-
-	muxConn, ok := gw.srvMuxConns.Load(serviceName)
-	if !ok {
-		return false
-	}
-	muxConn.Del(id)
-	return true
-}
-
-func (gw *Gateway) RegisterService(name string, optFns ...RegisterOptFunc) error {
-	var opts = &RegisterOption{}
-	for _, optFn := range optFns {
-		if err := optFn(opts); err != nil {
-			return err
-		}
-	}
-
-	switch opts.Method {
-	case ServiceMethodHandler:
-		if opts.Handler == nil {
-			return errors.New("handler is nil")
-		}
-
-		gw.addService(name, &srvRegister{
-			Name:            name,
-			remote:          true,
-			registerHandler: opts.Handler,
-		})
-		gw.addServiceConn(name, "", opts.Conn)
-	case ServiceMethodClient:
-		if opts.ClientCtor == nil || opts.ServiceHandleClient == nil {
-			return errors.New("client is nil")
-		}
-
-		gw.addService(name, &srvRegister{
-			Name:                name,
-			remote:              true,
-			declare:             true,
-			clientCtor:          opts.ClientCtor,
-			serviceHandleClient: opts.ServiceHandleClient,
-		})
-	case ServiceMethodImpl:
-		if opts.Impl == nil {
-			return errors.New("impl is nil")
-		}
-
-		gw.addService(name, &srvRegister{
-			Name:   name,
-			remote: false,
-		})
-
-		gw.addServiceImpl(name, opts.Impl)
-	}
-
+	gw.run.do(Setup)
 	return nil
 }
 
 func (gw *Gateway) Serve(addr string) error {
 	gw.prevAddr = addr
 
-	if err := gw.init(); err != nil {
+	if err := gw.setup(); err != nil {
 		return err
 	}
 
@@ -237,24 +134,23 @@ func (gw *Gateway) Serve(addr string) error {
 
 func (gw *Gateway) ServeTLS(addr string, certFile, keyFile string) error {
 	gw.prevAddr = addr
-	if err := gw.init(); err != nil {
+	if err := gw.setup(); err != nil {
 		return err
 	}
 
 	return http.ListenAndServeTLS(addr, certFile, keyFile, gw)
 }
 
-func (gw *Gateway) createServer() *http.Server {
-	gw.initGWServer()
+func (gw *Gateway) createServer(gwmux *runtime.ServeMux) *http.Server {
 
 	// build router and initial middlewares
-	r := gw.buildRouter()
+	// r := gw.buildRouter()
 
-	r.PathPrefix(gw.ApiPrefix).Handler(gw.gwmux)
+	// r.PathPrefix(gw.ApiPrefix).Handler(gw.gwmux)
 
 	httpServer := &http.Server{
-		Addr:    gw.prevAddr,
-		Handler: r,
+		// Addr:    gw.prevAddr,
+		Handler: gw.gwmux,
 	}
 
 	return httpServer
@@ -293,12 +189,6 @@ func (gw *Gateway) addMetrics() {
 	gw.addRouter("/metrics", promhttp.Handler())
 }
 
-func (gw *Gateway) initRegistry() {
-	if gw.registry == nil {
-		gw.registry = registry.Default
-	}
-}
-
 func (gw *Gateway) initGWServer() {
 	if gw.gwmux == nil {
 		gw.gwmux = runtime.NewServeMux(
@@ -311,73 +201,12 @@ func (gw *Gateway) buildMuxOptions() []runtime.ServeMuxOption {
 	return gw.muxOptions
 }
 
-func (gw *Gateway) setupServers(ctx context.Context) error {
-	gw.initGWServer()
-
-	var errs error
-	gw.srvRegisters.Range(func(serviceName string, srv *srvRegister) bool {
-		if err := gw.setupRegister(ctx, srv); err != nil {
-			errs = multierror.Append(errs, err)
-		}
-
-		return true
-	})
-
-	return errs
-}
-
-func (gw *Gateway) setupRegister(ctx context.Context, srv *srvRegister) error {
-	if srv.isRegistred {
-		return errors.New("already registered")
-	}
-
-	if srv.remote {
-		switch {
-		case srv.registerHandler != nil:
-			conns, _ := gw.srvConnections.Load(srv.Name)
-			if len(conns) == 0 {
-				return errors.New("no connection")
-			}
-
-			if err := srv.registerHandler(ctx, gw.gwmux, conns[0].Conn); err != nil {
-				return err
-			}
-			srv.isRegistred = true
-		case srv.serviceHandleClient != nil && srv.clientCtor != nil:
-			if muxconn, ok := gw.srvMuxConns.LoadOrStore(srv.Name, &Muxer{}); !ok {
-				serviceHandler := delegate.ServiceHandleClientProxy{
-					HandleClient: srv.serviceHandleClient,
-					ClientCtor:   srv.clientCtor,
-				}
-
-				if err := serviceHandler.Call(ctx, gw.gwmux, muxconn); err != nil {
-					return err
-				}
-			} else {
-				return errors.New("service already registered")
-			}
-		}
-	} else {
-		if serviceImpl, ok := gw.srvImpls.Load(srv.Name); !ok {
-			if err := srv.directRegister(ctx, gw.gwmux, serviceImpl); err != nil {
-				return err
-			}
-			srv.isRegistred = true
-		} else {
-			return errors.New("service impl dont exist")
-		}
-	}
-
-	return nil
-}
-
-func (gw *Gateway) init() error {
+func (gw *Gateway) init() {
 	var (
 		ctx = context.Background()
 	)
 
 	gw.ctx, gw.closefn = context.WithCancel(ctx)
-
 	if gw.ApiPrefix == "" {
 		gw.ApiPrefix = "/api"
 	}
@@ -386,53 +215,95 @@ func (gw *Gateway) init() error {
 		gw.Logger = logger.Logger
 	}
 
-	gw.serve = gw.createServer()
-	gw.initRegistry()
-
-	gw.registry.Discovery(gw.handleDiscovery)
-	go gw.registry.Start(ctx)
-	gw.initGWServer()
-
-	provisioning.Init(gw)
-
-	if err := gw.setupServers(ctx); err != nil {
-		return err
+	if gw.discovery == nil {
+		gw.discovery = discovery.Default
 	}
-	// register grpc server into gateway
-	return nil
+
+	gw.run.do(Init)
 }
 
-func (gw *Gateway) handleDiscovery(desc registry.RegistryMessage) {
+func (gw *Gateway) discoveryService(desc discovery.RegistryMessage) {
 	switch desc.Method {
-	case registry.ServiceJoin:
+	case discovery.ServiceJoin:
 		gw.Logger.Debug("service join", zap.String("service", desc.Desc.Service), zap.String("id", desc.Desc.ID), zap.String("target", desc.Desc.TargetURI))
-		if srv, ok := gw.srvRegisters.Load(desc.Desc.Service); ok {
-			if !srv.declare {
-				return
-			}
-
-			if !gw.hasConnected(desc.Desc.Service, desc.Desc.ID) {
-				newCtx, _ := context.WithCancel(gw.ctx)
-				conn, err := gw.DialContext(newCtx, desc.Desc.TargetURI, grpc.WithInsecure())
+		if desc.Desc.FileDescriptor == nil { // no file descriptor
+			gw.getDynamicService(desc.Desc.Service, func(dynservice DynamicService) {
+				conn, err := grpc.Dial(desc.Desc.TargetURI, grpc.WithInsecure(), grpc.WithBlock())
 				if err != nil {
+					gw.Logger.Warn("dial failed", zap.String("service", desc.Desc.Service), zap.String("id", desc.Desc.ID), zap.String("target", desc.Desc.TargetURI), zap.Error(err))
 					return
 				}
 
-				gw.addServiceConn(desc.Desc.Service, desc.Desc.ID, conn)
-				gw.Logger.Debug("service connected", zap.String("service", desc.Desc.Service), zap.String("id", desc.Desc.ID), zap.String("target", desc.Desc.TargetURI))
-			}
-		} else if desc.Desc.FileDescriptor != nil {
-			// gw.addService()
-		}
-		// g.addService(desc.Service, desc.Callback, desc.Conn)
-	case registry.ServiceLeave:
-		gw.Logger.Debug("service leave", zap.String("service", desc.Desc.Service), zap.String("id", desc.Desc.ID), zap.String("target", desc.Desc.TargetURI))
-		if srv, ok := gw.srvRegisters.Load(desc.Desc.Service); ok {
-			if !srv.declare {
-				return
-			}
+				if err := dynservice.AddConn(desc.Desc.ID, conn); err != nil {
+					gw.Logger.Warn("add conn failed", zap.String("service", desc.Desc.Service), zap.String("id", desc.Desc.ID), zap.String("target", desc.Desc.TargetURI), zap.Error(err))
+				}
+			})
+		} else {
+			if _, ok := gw.GetService(desc.Desc.Service); ok {
+				gw.getDynamicService(desc.Desc.Service, func(dynservice DynamicService) {
+					conn, err := grpc.Dial(desc.Desc.TargetURI, grpc.WithInsecure(), grpc.WithBlock())
+					if err != nil {
+						gw.Logger.Warn("dial failed", zap.String("service", desc.Desc.Service), zap.String("id", desc.Desc.ID), zap.String("target", desc.Desc.TargetURI), zap.Error(err))
+						return
+					}
 
-			gw.removeServiceConn(desc.Desc.Service, desc.Desc.ID)
+					if err := dynservice.AddConn(desc.Desc.ID, conn); err != nil {
+						gw.Logger.Warn("add conn failed", zap.String("service", desc.Desc.Service), zap.String("id", desc.Desc.ID), zap.String("target", desc.Desc.TargetURI), zap.Error(err))
+					}
+				})
+			} else {
+				service := NewDescriptorBuilderService(desc.Desc.Service, desc.Desc.FileDescriptor)
+				service.SetLogger(gw.Logger)
+
+				if err := gw.RegisterService(service); err != nil {
+					gw.Logger.Warn("register service failed", zap.String("service", desc.Desc.Service), zap.String("id", desc.Desc.ID), zap.String("target", desc.Desc.TargetURI), zap.Error(err))
+					return
+				}
+
+				gw.getDynamicService(desc.Desc.Service, func(dynservice DynamicService) {
+					conn, err := grpc.Dial(desc.Desc.TargetURI, grpc.WithInsecure(), grpc.WithBlock())
+					if err != nil {
+						gw.Logger.Warn("dial failed", zap.String("service", desc.Desc.Service), zap.String("id", desc.Desc.ID), zap.String("target", desc.Desc.TargetURI), zap.Error(err))
+						return
+					}
+
+					if err := dynservice.AddConn(desc.Desc.ID, conn); err != nil {
+						gw.Logger.Warn("add conn failed", zap.String("service", desc.Desc.Service), zap.String("id", desc.Desc.ID), zap.String("target", desc.Desc.TargetURI), zap.Error(err))
+					}
+				})
+			}
 		}
+
+		// g.addService(desc.Service, desc.Callback, desc.Conn)
+	case discovery.ServiceLeave:
+		gw.Logger.Debug("service leave", zap.String("service", desc.Desc.Service), zap.String("id", desc.Desc.ID), zap.String("target", desc.Desc.TargetURI))
+		gw.getDynamicService(desc.Desc.Service, func(dynservice DynamicService) {
+			if err := dynservice.RemoveConn(desc.Desc.ID); err != nil {
+				gw.Logger.Warn("remove conn failed", zap.String("service", desc.Desc.Service), zap.String("id", desc.Desc.ID), zap.String("target", desc.Desc.TargetURI), zap.Error(err))
+			}
+		})
 	}
+}
+
+func (gw *Gateway) dynamicService(service Service, fn func(dynamicService DynamicService)) DynamicService {
+	var a any = service
+	dynservice, ok := a.(DynamicService)
+	if !ok {
+		gw.Logger.Warn("service not dynamic", zap.String("service", service.ServiceName()))
+		return nil
+	}
+
+	fn(dynservice)
+	return dynservice
+
+}
+
+func (gw *Gateway) getDynamicService(serviceName string, fn func(dynamicService DynamicService)) (DynamicService, bool) {
+	var service, ok = gw.GetService(serviceName)
+	if !ok {
+		gw.Logger.Warn("service not found", zap.String("service", serviceName))
+		return nil, false
+	}
+
+	return gw.dynamicService(service, fn), true
 }

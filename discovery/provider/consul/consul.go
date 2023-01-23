@@ -7,9 +7,9 @@ import (
 
 	"github.com/golang/protobuf/proto"
 	"github.com/hashicorp/consul/api"
+	"github.com/hysios/mx/discovery"
+	"github.com/hysios/mx/discovery/agent"
 	"github.com/hysios/mx/logger"
-	"github.com/hysios/mx/registry"
-	"github.com/hysios/mx/registry/agent"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -17,7 +17,7 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 )
 
-func NewConsulProvider() registry.ServiceDiscover {
+func NewConsulProvider() discovery.ServiceDiscover {
 	c := &consulDiscovery{}
 	go c.Run()
 	return c
@@ -31,8 +31,8 @@ type consulDiscovery struct {
 	cli         *api.Client
 	closefn     context.CancelFunc
 	ctx         context.Context
-	msgch       chan registry.RegistryMessage
-	shadow      map[string]registry.ServiceDesc
+	msgch       chan discovery.RegistryMessage
+	shadow      map[string]discovery.ServiceDesc
 	resolverURI resolverURI
 }
 
@@ -70,7 +70,7 @@ func (c *consulDiscovery) init() error {
 	}
 
 	if c.shadow == nil {
-		c.shadow = make(map[string]registry.ServiceDesc)
+		c.shadow = make(map[string]discovery.ServiceDesc)
 	}
 
 	if c.interval == 0 {
@@ -79,7 +79,7 @@ func (c *consulDiscovery) init() error {
 
 	// create msg channel
 	if c.msgch == nil {
-		c.msgch = make(chan registry.RegistryMessage, 10)
+		c.msgch = make(chan discovery.RegistryMessage, 10)
 	}
 
 	return nil
@@ -125,10 +125,7 @@ func (c *consulDiscovery) Run() error {
 	for {
 		select {
 		case <-tick.C:
-			services, err := agent.ServicesWithFilterOpts("", &api.QueryOptions{
-				Namespace: c.Namespace,
-			})
-
+			services, err := c.filterServices(agent)
 			if err != nil {
 				continue
 			}
@@ -142,7 +139,7 @@ func (c *consulDiscovery) Run() error {
 			}
 
 			for _, id := range adds {
-				desc := registry.ServiceDesc{
+				desc := discovery.ServiceDesc{
 					ID:        id,
 					Service:   services[id].Service,
 					Address:   services[id].Address,
@@ -168,8 +165,8 @@ func (c *consulDiscovery) Run() error {
 				}
 
 				if len(c.msgch) < cap(c.msgch) {
-					c.msgch <- registry.RegistryMessage{
-						Method: registry.ServiceJoin,
+					c.msgch <- discovery.RegistryMessage{
+						Method: discovery.ServiceJoin,
 						Desc:   desc,
 					}
 					c.shadow[id] = desc
@@ -178,9 +175,9 @@ func (c *consulDiscovery) Run() error {
 
 			for _, id := range dels {
 				if len(c.msgch) < cap(c.msgch) {
-					c.msgch <- registry.RegistryMessage{
-						Method: registry.ServiceLeave,
-						Desc: registry.ServiceDesc{
+					c.msgch <- discovery.RegistryMessage{
+						Method: discovery.ServiceLeave,
+						Desc: discovery.ServiceDesc{
 							ID:        id,
 							Service:   c.shadow[id].Service,
 							Type:      "",
@@ -192,11 +189,25 @@ func (c *consulDiscovery) Run() error {
 					delete(c.shadow, id)
 				}
 			}
-
 		case <-c.ctx.Done():
 			return c.ctx.Err()
 		}
 	}
+}
+
+func (c *consulDiscovery) filterServices(agent *api.Agent) (map[string]*api.AgentService, error) {
+	services, err := agent.ServicesWithFilterOpts("", &api.QueryOptions{
+		Namespace: c.Namespace,
+	})
+
+	filterd := make(map[string]*api.AgentService)
+	for _, srv := range services {
+		if srv.Meta["service_type"] == "grpc_server" {
+			filterd[srv.ID] = srv
+		}
+	}
+
+	return filterd, err
 }
 
 func (c *consulDiscovery) consulResolverURI(srv *api.AgentService) string {
@@ -229,7 +240,7 @@ func (c *consulDiscovery) Close() error {
 	return nil
 }
 
-func (c *consulDiscovery) Notify() chan registry.RegistryMessage {
+func (c *consulDiscovery) Notify() chan discovery.RegistryMessage {
 	c.init()
 
 	return c.msgch
@@ -237,7 +248,7 @@ func (c *consulDiscovery) Notify() chan registry.RegistryMessage {
 
 func init() {
 	// register consul discovery
-	registry.RegistryProvider("consul", func() registry.Provider {
+	discovery.RegistryProvider("consul", func() discovery.Provider {
 		return &provider{}
 	})
 
@@ -247,10 +258,10 @@ func init() {
 type provider struct {
 }
 
-func (p *provider) Discover() registry.ServiceDiscover {
+func (p *provider) Discover() discovery.ServiceDiscover {
 	return NewConsulProvider()
 }
 
-func (p *provider) Agent() registry.Agent {
+func (p *provider) Agent() discovery.Agent {
 	return NewConsulAgent()
 }

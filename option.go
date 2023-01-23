@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
-	"github.com/hysios/mx/internal/delegate"
 	"google.golang.org/grpc"
 )
 
@@ -57,23 +56,6 @@ func WithServiceHandler(handler ConnServiceHandler) RegisterOptFunc {
 	return func(o *RegisterOption) error {
 		o.Method = ServiceMethodHandler
 		o.Handler = handler
-		return nil
-	}
-}
-
-func WithServiceClient(clientCtor ClientCtor, handleClient ServiceHandleClient) RegisterOptFunc {
-	return func(o *RegisterOption) error {
-		o.Method = ServiceMethodClient
-		if err := delegate.ClientValid(clientCtor); err != nil {
-			return err
-		}
-
-		if err := delegate.ServiceHandleValid(handleClient); err != nil {
-			return err
-		}
-
-		o.ClientCtor = clientCtor
-		o.ServiceHandleClient = handleClient
 		return nil
 	}
 }

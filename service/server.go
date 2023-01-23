@@ -18,16 +18,15 @@ import (
 	grpc_opentracing "github.com/grpc-ecosystem/go-grpc-middleware/tracing/opentracing"
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 
-	"github.com/hysios/mx"
+	"github.com/hysios/mx/discovery"
 	"github.com/hysios/mx/errors"
 	"github.com/hysios/mx/logger"
-	"github.com/hysios/mx/registry"
-	"github.com/hysios/mx/registry/agent"
-	_ "github.com/hysios/mx/registry/provider/consul"
+
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 // Server is a service
@@ -45,6 +44,8 @@ type Server struct {
 
 	unaryInterceptors  []grpc.UnaryServerInterceptor
 	streamInterceptors []grpc.StreamServerInterceptor
+
+	listenAddrs []chan net.Addr
 }
 
 func New(name string, impl any, optfns ...ServerOptionFunc) *Server {
@@ -58,8 +59,9 @@ func New(name string, impl any, optfns ...ServerOptionFunc) *Server {
 	if opts.Logger == nil {
 		opts.Logger = logger.Cli
 	}
-
-	validService(name, impl, opts.ServiceDesc)
+	if opts.ServiceDesc != nil {
+		validService(name, impl, opts.ServiceDesc)
+	}
 
 	return &Server{
 		Name:               name,
@@ -69,6 +71,14 @@ func New(name string, impl any, optfns ...ServerOptionFunc) *Server {
 		streamInterceptors: make([]grpc.StreamServerInterceptor, 0),
 		logger:             opts.Logger,
 	}
+}
+
+func NewServiceDesc(desc *grpc.ServiceDesc, impl any) *Server {
+	return New(desc.ServiceName, impl, WithServiceDesc(desc))
+}
+
+func NewServiceFileDescriptor(desc *grpc.ServiceDesc, impl any, filedesc protoreflect.FileDescriptor) *Server {
+	return New(desc.ServiceName, impl, WithServiceDesc(desc), WithFileDescriptor(filedesc))
 }
 
 func validService(name string, impl any, serviceDesc *grpc.ServiceDesc) {
@@ -84,8 +94,6 @@ func (s *Server) init() {
 		s.registerDesc(s.opts.ServiceDesc, s.impl)
 	} else if s.opts.ServiceRegistrar != nil {
 		s.opts.ServiceRegistrar(s.grpcserver, s.impl)
-	} else {
-		panic("service desc is nil")
 	}
 }
 
@@ -164,7 +172,9 @@ func (s *Server) AddService(another *Server) {
 }
 
 func (s *Server) registerDesc(desc *grpc.ServiceDesc, impl any) {
-	if init, ok := impl.(mx.Initer); ok {
+	if init, ok := impl.(interface {
+		Init() error
+	}); ok {
 		if err := init.Init(); err != nil {
 			panic(err)
 		}
@@ -177,22 +187,15 @@ func (s *Server) Serve(lns net.Listener) error {
 	s.init()
 	s.ln = lns
 
+	servech := make(chan net.Addr, 1)
+	go s.waitForStart(servech)
+
 	grpc_prometheus.Register(s.grpcserver)
-
 	s.teardown()
-
-	if err := agent.Register(registry.ServiceDesc{
-		ID:             s.GetID(),
-		Service:        s.Name,
-		Type:           "grpc_server",
-		Address:        lns.Addr().String(),
-		FileDescriptor: s.opts.FileDescriptor,
-	}); err != nil {
-		return err
-	}
 
 	go func() {
 		time.Sleep(time.Millisecond * 500)
+		servech <- lns.Addr()
 		s.logger.Info("server start", zap.String("name", s.Name), zap.String("address", lns.Addr().String()))
 	}()
 	return s.grpcserver.Serve(lns)
@@ -217,10 +220,36 @@ func (s *Server) Start() error {
 }
 
 func (s *Server) Addr() net.Addr {
+	return <-s.AddrCh()
+}
+
+func (s *Server) AddrCh() chan net.Addr {
+	ch := make(chan net.Addr, 1)
 	if s.ln == nil {
-		return nil
+		s.addListen(ch)
+	} else {
+		ch <- s.ln.Addr()
 	}
-	return s.ln.Addr()
+
+	return ch
+}
+
+func (s *Server) waitForStart(serveCh chan net.Addr) {
+	for {
+		select {
+		case addr := <-serveCh:
+			for _, ch := range s.listenAddrs {
+				select {
+				case ch <- addr:
+				default:
+				}
+			}
+		}
+	}
+}
+
+func (s *Server) addListen(ch chan net.Addr) {
+	s.listenAddrs = append(s.listenAddrs, ch)
 }
 
 func (s *Server) GetID() string {
@@ -239,4 +268,26 @@ func (s *Server) teardown() {
 		<-c
 		s.grpcserver.GracefulStop()
 	}()
+}
+
+func (s *Server) ServiceDesc() discovery.ServiceDesc {
+	if s.opts.FileDescriptor == nil {
+		return discovery.ServiceDesc{
+			ID:        s.GetID(),
+			Namespace: s.opts.Namespace,
+			Service:   s.Name,
+			Type:      "grpc_server",
+			Address:   s.Addr().String(),
+		}
+	} else {
+		return discovery.ServiceDesc{
+			ID:                s.GetID(),
+			Namespace:         s.opts.Namespace,
+			Service:           s.Name,
+			Type:              "grpc_server",
+			Address:           s.Addr().String(),
+			FileDescriptor:    s.opts.FileDescriptor,
+			FileDescriptorKey: s.opts.FileDescriptor.Path(),
+		}
+	}
 }

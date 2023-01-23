@@ -7,17 +7,13 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"reflect"
 	"strconv"
 	"syscall"
 	"time"
 
 	"github.com/hashicorp/consul/api"
-	"github.com/hysios/mx/registry"
-	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/reflect/protodesc"
+	"github.com/hysios/mx/discovery"
 	"google.golang.org/protobuf/reflect/protoreflect"
-	"google.golang.org/protobuf/runtime/protoimpl"
 )
 
 type AgentOption struct {
@@ -32,7 +28,7 @@ func WithConfig(cfg *api.Config) AgentOptionFunc {
 	}
 }
 
-func NewConsulAgent(optFns ...AgentOptionFunc) registry.Agent {
+func NewConsulAgent(optFns ...AgentOptionFunc) discovery.Agent {
 	var (
 		opt = AgentOption{}
 	)
@@ -71,9 +67,10 @@ type consulAgent struct {
 	ctx         context.Context
 	closefn     context.CancelFunc
 	resolverURI resolverURI
+	pack        discovery.FileDescriptorPacker
 }
 
-func (c *consulAgent) Register(desc registry.ServiceDesc) error {
+func (c *consulAgent) Register(desc discovery.ServiceDesc) error {
 	var (
 		agent            = c.cli.Agent()
 		host, _port, err = net.SplitHostPort(desc.Address)
@@ -92,7 +89,7 @@ func (c *consulAgent) Register(desc registry.ServiceDesc) error {
 	}
 
 	if desc.FileDescriptor != nil {
-		b, err := c.marshalFiledescriptor(desc.FileDescriptor)
+		b, err := c.pack.Pack(desc.FileDescriptor)
 		if err != nil {
 			return err
 		}
@@ -135,7 +132,7 @@ func (c *consulAgent) Register(desc registry.ServiceDesc) error {
 	return nil
 }
 
-func (c *consulAgent) updateSchedule(desc registry.ServiceDesc) error {
+func (c *consulAgent) updateSchedule(desc discovery.ServiceDesc) error {
 	var (
 		agent = c.cli.Agent()
 		tick  = time.NewTicker(15 * time.Second)
@@ -159,12 +156,6 @@ func (c *consulAgent) updateSchedule(desc registry.ServiceDesc) error {
 	return nil
 }
 
-func (c *consulAgent) marshalFiledescriptor(desc protoreflect.FileDescriptor) (b []byte, err error) {
-	descProto := protodesc.ToFileDescriptorProto(desc)
-	b, err = proto.MarshalOptions{AllowPartial: true, Deterministic: true}.Marshal(descProto)
-	return
-}
-
 func (c *consulAgent) getFileDescriptor(key string) (desc protoreflect.FileDescriptor, err error) {
 	var (
 		pair *api.KVPair
@@ -180,12 +171,7 @@ func (c *consulAgent) getFileDescriptor(key string) (desc protoreflect.FileDescr
 		return
 	}
 
-	out := protoimpl.DescBuilder{
-		GoPackagePath: reflect.TypeOf(struct{}{}).PkgPath(),
-		RawDescriptor: pair.Value,
-	}.Build()
-
-	return out.File, nil
+	return c.pack.Unpack(pair.Value)
 }
 
 func (c consulAgent) Update(serviceID, output, status string) error {
@@ -208,10 +194,10 @@ func (c *consulAgent) Deregister(serviceID string) error {
 	return nil
 }
 
-func (c *consulAgent) Lookup(serviceName string, optfns ...registry.LookupOptionFunc) ([]registry.ServiceDesc, bool) {
+func (c *consulAgent) Lookup(serviceName string, optfns ...discovery.LookupOptionFunc) ([]discovery.ServiceDesc, bool) {
 	var (
 		agent = c.cli.Agent()
-		opt   = registry.LookupOption{}
+		opt   = discovery.LookupOption{}
 	)
 
 	for _, fn := range optfns {
@@ -225,11 +211,12 @@ func (c *consulAgent) Lookup(serviceName string, optfns ...registry.LookupOption
 		return nil, false
 	}
 
-	var descs []registry.ServiceDesc
+	var descs []discovery.ServiceDesc
 	for _, service := range services {
 		if service.Meta["service_type"] == "grpc_server" {
 			continue
 		}
+
 		var filedescriptor protoreflect.FileDescriptor
 		if service.Meta["file_descriptor_key"] != "" {
 			if desc, err := c.getFileDescriptor(service.Meta["file_descriptor_key"]); err == nil {
@@ -237,7 +224,7 @@ func (c *consulAgent) Lookup(serviceName string, optfns ...registry.LookupOption
 			}
 		}
 
-		descs = append(descs, registry.ServiceDesc{
+		descs = append(descs, discovery.ServiceDesc{
 			ID:                service.ID,
 			Service:           service.Service,
 			Namespace:         service.Namespace,

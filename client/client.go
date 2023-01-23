@@ -6,9 +6,9 @@ import (
 	"sync"
 
 	"github.com/hysios/mx"
+	"github.com/hysios/mx/discovery/agent"
 	"github.com/hysios/mx/internal/delegate"
 	"github.com/hysios/mx/logger"
-	"github.com/hysios/mx/registry/agent"
 	"github.com/hysios/mx/utils"
 	"go.uber.org/zap"
 
@@ -52,7 +52,7 @@ func Make(serviceName string, impl interface{}, optfns ...MakeOptionFunc) error 
 		conn = rawconn
 	}
 
-	proxy := delegate.ClientProxy{ClientCtor: ctor()}
+	proxy := delegate.ClientCtor{ClientCtor: ctor()}
 	client, err := proxy.Call(conn)
 	if err != nil {
 		return err
@@ -120,7 +120,7 @@ func LMake(serviceName string, recvfn interface{}, optfns ...MakeOptionFunc) err
 				conn = sgconn
 			}
 
-			proxy := delegate.ClientProxy{ClientCtor: ctor()}
+			proxy := delegate.ClientCtor{ClientCtor: ctor()}
 			client, err := proxy.Call(conn)
 			if err != nil {
 				panic(err)
@@ -136,7 +136,10 @@ func LMake(serviceName string, recvfn interface{}, optfns ...MakeOptionFunc) err
 }
 
 func Registry(serviceName string, clientCtor mx.ClientCtor) {
-	if err := delegate.ClientValid(clientCtor); err != nil {
+	clientProxy := delegate.ClientCtor{
+		ClientCtor: clientCtor,
+	}
+	if err := clientProxy.Valid(); err != nil {
 		panic(err)
 	}
 

@@ -6,12 +6,12 @@ import (
 
 	"github.com/hysios/mx"
 	pb "github.com/hysios/mx/_example/gen/proto"
-	"github.com/hysios/mx/registry"
-	"github.com/hysios/mx/registry/agent"
+	"github.com/hysios/mx/discovery"
+	"github.com/hysios/mx/discovery/agent"
 )
 
 func TestMain(m *testing.M) {
-	_ = agent.Default.Register(registry.ServiceDesc{
+	_ = agent.Default.Register(discovery.ServiceDesc{
 		ID:        "EchoService",
 		Service:   "EchoService",
 		TargetURI: "localhost:50051",
