@@ -32,7 +32,15 @@ func Deregister(serviceID string) error {
 	return Default.Deregister(serviceID)
 }
 
+var (
+	_config *config.Config
+)
+
 func Config(defaults map[string]interface{}) (*config.Config, error) {
+	if _config != nil {
+		return _config, nil
+	}
+
 	if Default == nil {
 		return nil, errors.New("discovery agent is not set")
 	}
@@ -102,7 +110,8 @@ func Config(defaults map[string]interface{}) (*config.Config, error) {
 		return nil, err
 	}
 
-	return config.NewConfig(defaults, providers...), nil
+	_config = config.NewConfig(defaults, providers...)
+	return _config, nil
 }
 
 func SetDefaultAgent(agent discovery.Agent) {

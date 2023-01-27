@@ -1,6 +1,8 @@
 package discovery
 
 import (
+	"errors"
+	"fmt"
 	"reflect"
 
 	"google.golang.org/protobuf/proto"
@@ -17,11 +19,25 @@ func (p *FileDescriptorPacker) Pack(desc protoreflect.FileDescriptor) ([]byte, e
 	return proto.MarshalOptions{AllowPartial: true, Deterministic: true}.Marshal(descProto)
 }
 
-func (p *FileDescriptorPacker) Unpack(src []byte) (protoreflect.FileDescriptor, error) {
+func (p *FileDescriptorPacker) Unpack(src []byte) (desc protoreflect.FileDescriptor, err error) {
+	defer func() {
+		if _err := recover(); _err != nil {
+			switch r := _err.(type) {
+			case error:
+				err = r
+			case string:
+				err = errors.New(r)
+			default:
+				err = fmt.Errorf("%v", r)
+			}
+		}
+	}()
+
 	out := protoimpl.DescBuilder{
 		GoPackagePath: reflect.TypeOf(struct{}{}).PkgPath(),
 		RawDescriptor: src,
 	}.Build()
 
-	return out.File, nil
+	desc = out.File
+	return
 }

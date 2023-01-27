@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/hysios/mx"
+	"github.com/hysios/mx/discovery"
 	"github.com/hysios/mx/discovery/agent"
 	"github.com/hysios/mx/internal/delegate"
 	"github.com/hysios/mx/logger"
@@ -31,7 +32,7 @@ func Make(serviceName string, impl interface{}, optfns ...MakeOptionFunc) error 
 		return mx.ErrServiceNotFound
 	}
 
-	services, ok := agent.Default.Lookup(serviceName)
+	services, ok := agent.Default.Lookup(serviceName, discovery.WithServiceType(mx.ServerType))
 	if !ok {
 		return mx.ErrServiceNotFound
 	}
@@ -105,6 +106,7 @@ func LMake(serviceName string, recvfn interface{}, optfns ...MakeOptionFunc) err
 			if opts.mockClient != nil {
 				conn = opts.mockClient
 			} else {
+				logger.Logger.Info("dial", zap.String("target", services[0].TargetURI))
 				rawconn, err := dial(services[0].TargetURI, opts)
 				if err != nil {
 					panic(err)
