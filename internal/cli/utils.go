@@ -59,7 +59,7 @@ func CheckMethod(s string) error {
 	// preSections[2] = "UserRequest{id:int32 name:string}:UserResponse{id:int32 name:string}"
 
 	if len(preSections) != 4 {
-		return errors.New("invalid method format")
+		return errors.New("invalid method format! example: `CreateUser:POST:/api/users:UserRequest{name:string}:UserResponse{id:int32 name:string}`")
 	}
 
 	// check method name

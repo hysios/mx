@@ -1,4 +1,4 @@
-package service
+package server
 
 import (
 	"context"
@@ -18,6 +18,7 @@ import (
 	grpc_opentracing "github.com/grpc-ecosystem/go-grpc-middleware/tracing/opentracing"
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 
+	"github.com/hysios/mx"
 	"github.com/hysios/mx/discovery"
 	"github.com/hysios/mx/errors"
 	"github.com/hysios/mx/logger"
@@ -31,16 +32,15 @@ import (
 
 // Server is a service
 type Server struct {
-	ID   string
-	Name string
+	ID         string
+	ServerName string
 
-	opts        ServerOption
-	desc        *grpc.ServiceDesc
-	impl        any
-	grpcserver  *grpc.Server
-	grpcOptions []grpc.ServerOption
-	ln          net.Listener
-	logger      *zap.Logger
+	opts         ServerOption
+	serviceDescs []serviceDesc
+	grpcserver   *grpc.Server
+	grpcOptions  []grpc.ServerOption
+	ln           net.Listener
+	logger       *zap.Logger
 
 	unaryInterceptors  []grpc.UnaryServerInterceptor
 	streamInterceptors []grpc.StreamServerInterceptor
@@ -48,7 +48,7 @@ type Server struct {
 	listenAddrs []chan net.Addr
 }
 
-func New(name string, impl any, optfns ...ServerOptionFunc) *Server {
+func New(name string, optfns ...ServerOptionFunc) *Server {
 	var opts ServerOption
 	for _, fn := range optfns {
 		if err := fn(&opts); err != nil {
@@ -59,29 +59,29 @@ func New(name string, impl any, optfns ...ServerOptionFunc) *Server {
 	if opts.Logger == nil {
 		opts.Logger = logger.Cli
 	}
-	if opts.ServiceDesc != nil {
-		validService(name, impl, opts.ServiceDesc)
-	}
 
 	return &Server{
-		Name:               name,
+		ServerName:         name,
 		opts:               opts,
-		impl:               impl,
 		unaryInterceptors:  make([]grpc.UnaryServerInterceptor, 0),
 		streamInterceptors: make([]grpc.StreamServerInterceptor, 0),
 		logger:             opts.Logger,
 	}
 }
 
-func NewServiceDesc(desc *grpc.ServiceDesc, impl any) *Server {
-	return New(desc.ServiceName, impl, WithServiceDesc(desc))
+func NewServiceDesc(desc grpc.ServiceDesc, impl any) *Server {
+	s := New(desc.ServiceName)
+	s.RegisterService(&desc, impl)
+	return s
 }
 
-func NewServiceFileDescriptor(desc *grpc.ServiceDesc, impl any, filedesc protoreflect.FileDescriptor) *Server {
-	return New(desc.ServiceName, impl, WithServiceDesc(desc), WithFileDescriptor(filedesc))
+func NewServiceFileDescriptor(desc grpc.ServiceDesc, impl any, filedesc protoreflect.FileDescriptor) *Server {
+	s := New(desc.ServiceName)
+	s.RegisterService(&desc, impl, WithFileDescriptor(filedesc))
+	return s
 }
 
-func validService(name string, impl any, serviceDesc *grpc.ServiceDesc) {
+func validService(name string, serviceDesc *grpc.ServiceDesc) {
 	if !strings.HasSuffix(serviceDesc.ServiceName, name) {
 		logger.Logger.Warn("service name is not match with service desc", zap.String("service_name", name), zap.String("service_desc", serviceDesc.ServiceName))
 	}
@@ -90,11 +90,6 @@ func validService(name string, impl any, serviceDesc *grpc.ServiceDesc) {
 func (s *Server) init() {
 	s.initServer()
 
-	if s.opts.ServiceDesc != nil {
-		s.registerDesc(s.opts.ServiceDesc, s.impl)
-	} else if s.opts.ServiceRegistrar != nil {
-		s.opts.ServiceRegistrar(s.grpcserver, s.impl)
-	}
 }
 
 func (s *Server) initServer() {
@@ -159,19 +154,29 @@ func (s *Server) buildStreamServerInterceptor() grpc.StreamServerInterceptor {
 	)
 }
 
-func (s *Server) AddServiceDesc(desc *grpc.ServiceDesc, impl any) {
+func (s *Server) RegisterService(desc *grpc.ServiceDesc, impl any, optfns ...ServerOptionFunc) {
 	s.initServer()
 
-	s.registerDesc(desc, impl)
+	s.registerDesc(desc, impl, optfns...)
 }
 
-func (s *Server) AddService(another *Server) {
-	s.initServer()
+func (s *Server) registerDesc(desc *grpc.ServiceDesc, impl any, optfns ...ServerOptionFunc) {
+	var opts ServerOption
+	for _, fn := range optfns {
+		if err := fn(&opts); err != nil {
+			panic(err)
+		}
+	}
 
-	s.registerDesc(another.desc, another.impl)
-}
+	s.serviceDescs = append(s.serviceDescs, func() serviceDesc {
+		return serviceDesc{
+			desc:         desc,
+			impl:         impl,
+			namespace:    opts.Namespace,
+			filedescript: opts.FileDescriptor,
+		}
+	}())
 
-func (s *Server) registerDesc(desc *grpc.ServiceDesc, impl any) {
 	if init, ok := impl.(interface {
 		Init() error
 	}); ok {
@@ -196,7 +201,7 @@ func (s *Server) Serve(lns net.Listener) error {
 	go func() {
 		time.Sleep(time.Millisecond * 500)
 		servech <- lns.Addr()
-		s.logger.Info("server start", zap.String("name", s.Name), zap.String("address", lns.Addr().String()))
+		s.logger.Info("server start", zap.String("name", s.ServerName), zap.String("address", lns.Addr().String()))
 	}()
 	return s.grpcserver.Serve(lns)
 }
@@ -257,7 +262,7 @@ func (s *Server) GetID() string {
 		return s.ID
 	}
 
-	return fmt.Sprintf("%s_%d", s.Name, os.Getpid())
+	return fmt.Sprintf("%s_%d", s.ServerName, os.Getpid())
 }
 
 func (s *Server) teardown() {
@@ -270,24 +275,40 @@ func (s *Server) teardown() {
 	}()
 }
 
-func (s *Server) ServiceDesc() discovery.ServiceDesc {
-	if s.opts.FileDescriptor == nil {
-		return discovery.ServiceDesc{
-			ID:        s.GetID(),
-			Namespace: s.opts.Namespace,
-			Service:   s.Name,
-			Type:      "grpc_server",
-			Address:   s.Addr().String(),
+func (s *Server) ServiceDescs() []discovery.ServiceDesc {
+	var descs []discovery.ServiceDesc
+	for _, desc := range s.serviceDescs {
+		var filedescriptkey string
+		if desc.filedescript != nil {
+			filedescriptkey = desc.filedescript.Path()
 		}
-	} else {
-		return discovery.ServiceDesc{
-			ID:                s.GetID(),
-			Namespace:         s.opts.Namespace,
-			Service:           s.Name,
-			Type:              "grpc_server",
+
+		descs = append(descs, discovery.ServiceDesc{
+			ID:                desc.GetID(),
+			Namespace:         desc.namespace,
+			Service:           desc.desc.ServiceName,
+			Type:              mx.ServerType,
 			Address:           s.Addr().String(),
-			FileDescriptor:    s.opts.FileDescriptor,
-			FileDescriptorKey: s.opts.FileDescriptor.Path(),
-		}
+			FileDescriptor:    desc.filedescript,
+			FileDescriptorKey: filedescriptkey,
+			Group:             s.GetID(),
+		})
 	}
+
+	return descs
+}
+
+type serviceDesc struct {
+	ID           string
+	desc         *grpc.ServiceDesc
+	impl         any
+	namespace    string
+	filedescript protoreflect.FileDescriptor
+}
+
+func (desc *serviceDesc) GetID() string {
+	if desc.ID == "" {
+		desc.ID = fmt.Sprintf("%s_%d", desc.desc.ServiceName, os.Getpid())
+	}
+	return desc.ID
 }

@@ -1,0 +1,12 @@
+{
+    "database": {
+        "driver": "mysql",
+        "mysql": {
+            "database": "platform",
+            "host": "127.0.0.1",
+            "pass": "mypassword",
+            "port": 3306,
+            "user": "root"
+        }
+    }
+}

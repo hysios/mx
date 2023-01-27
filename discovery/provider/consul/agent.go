@@ -107,6 +107,11 @@ func (c *consulAgent) Register(desc discovery.ServiceDesc) error {
 		}
 	}
 
+	// add service group to meta
+	if desc.Group != "" {
+		meta["group"] = desc.Group
+	}
+
 	if err = agent.ServiceRegister(&api.AgentServiceRegistration{
 		ID:        desc.ID,
 		Name:      desc.Service,
@@ -213,7 +218,7 @@ func (c *consulAgent) Lookup(serviceName string, optfns ...discovery.LookupOptio
 
 	var descs []discovery.ServiceDesc
 	for _, service := range services {
-		if service.Meta["service_type"] == "grpc_server" {
+		if !opt.MatchServiceType(service.Meta["service_type"]) {
 			continue
 		}
 
@@ -232,6 +237,7 @@ func (c *consulAgent) Lookup(serviceName string, optfns ...discovery.LookupOptio
 			Address:           fmt.Sprintf("%s:%d", service.Address, service.Port),
 			FileDescriptorKey: service.Meta["file_descriptor_key"],
 			FileDescriptor:    filedescriptor,
+			Group:             service.Meta["group"],
 		})
 	}
 
@@ -256,5 +262,4 @@ func (c *consulAgent) teardown() {
 			c.closefn()
 		}
 	}()
-
 }

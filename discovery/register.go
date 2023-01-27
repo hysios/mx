@@ -14,14 +14,17 @@ type Agent interface {
 
 type ServiceKind int
 
+// ServiceDesc is the service description
 type ServiceDesc struct {
 	ID                string
 	Kind              ServiceKind
 	Service           string
+	Version           string
 	TargetURI         string
 	Type              string
 	Address           string
 	Namespace         string
+	Group             string
 	FileDescriptorKey string
 	FileDescriptor    protoreflect.FileDescriptor
 }

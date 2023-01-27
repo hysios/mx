@@ -1,4 +1,4 @@
-package service
+package server
 
 import (
 	"go.uber.org/zap"
@@ -14,12 +14,10 @@ type RegisterOptionFunc func(*RegisterOption) error
 type Registrar func(s *grpc.Server, impl any)
 
 type ServerOption struct {
-	Namespace        string
-	ServiceDesc      *grpc.ServiceDesc
-	ServiceRegistrar Registrar
-	Logger           *zap.Logger
-	NoRegister       bool
-	FileDescriptor   protoreflect.FileDescriptor
+	Namespace      string
+	ServiceDesc    *grpc.ServiceDesc
+	Logger         *zap.Logger
+	FileDescriptor protoreflect.FileDescriptor
 }
 
 type ServerOptionFunc func(*ServerOption) error
@@ -27,13 +25,6 @@ type ServerOptionFunc func(*ServerOption) error
 func WithServiceDesc(desc *grpc.ServiceDesc) ServerOptionFunc {
 	return func(o *ServerOption) error {
 		o.ServiceDesc = desc
-		return nil
-	}
-}
-
-func WithServiceRegistrar(registrar Registrar) ServerOptionFunc {
-	return func(o *ServerOption) error {
-		o.ServiceRegistrar = registrar
 		return nil
 	}
 }
@@ -48,13 +39,6 @@ func WithLogger(logger *zap.Logger) ServerOptionFunc {
 func WithNamespace(ns string) ServerOptionFunc {
 	return func(o *ServerOption) error {
 		o.Namespace = ns
-		return nil
-	}
-}
-
-func WithNoRegister() ServerOptionFunc {
-	return func(o *ServerOption) error {
-		o.NoRegister = true
 		return nil
 	}
 }

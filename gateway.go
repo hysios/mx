@@ -25,6 +25,7 @@ type Gateway struct {
 	middlewares              []Middleware                   // middleware chain
 	muxOptions               []runtime.ServeMuxOption       // grpc-gateway mux options
 	gwmux                    *runtime.ServeMux              // grpc-gateway mux instance
+	muxpool                  *MuxPool                       // mux pool
 	serve                    *http.Server                   // http server
 	prevAddr                 string                         // previous listen address
 	discovery                *discovery.ServiceDiscovery    // service discovery registry
@@ -41,18 +42,6 @@ type Gateway struct {
 type serviceConn struct {
 	ServiceID string
 	Conn      *grpc.ClientConn
-}
-
-type srvRegister struct {
-	ID                  string
-	Name                string
-	declare             bool
-	remote              bool
-	registerHandler     ConnServiceHandler
-	directRegister      ServiceDirectHandler
-	clientCtor          ClientCtor
-	serviceHandleClient ServiceHandleClient
-	isRegistred         bool
 }
 
 type (
@@ -117,8 +106,25 @@ func (gw *Gateway) setup() error {
 	go gw.discovery.Start(gw.ctx)
 	provisioning.Init(gw)
 
+	gw.muxpool = NewMuxPool(gw.createMuxs(2)...)
+
 	gw.run.do(Setup)
 	return nil
+}
+
+func (gw *Gateway) createMux() *runtime.ServeMux {
+	return runtime.NewServeMux(
+		gw.buildMuxOptions()...,
+	)
+}
+
+func (gw *Gateway) createMuxs(n int) []*runtime.ServeMux {
+	muxs := make([]*runtime.ServeMux, n)
+	for i := 0; i < n; i++ {
+		muxs[i] = gw.createMux()
+	}
+
+	return muxs
 }
 
 func (gw *Gateway) Serve(addr string) error {

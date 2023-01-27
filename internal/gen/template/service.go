@@ -276,17 +276,18 @@ func init() {
 		var (
 			pkgpath = baseCtx.Value("FullPackage").(string)
 			name    = baseCtx.Value("Name").(string)
+			goctx   = &gen.GofileContext{
+				Context: baseCtx,
+				PkgName: baseCtx.Value("Name").(string),
+				GoImports: [][2]string{
+					{pkgpath + "/gen/proto", "pb"},
+					{pkgpath + "/services/" + name, ""},
+					{"github.com/hysios/mx/server", ""},
+				},
+			}
 		)
 
-		return &gen.GofileContext{
-			Context: baseCtx,
-			PkgName: baseCtx.Value("Name").(string),
-			GoImports: [][2]string{
-				{pkgpath + "/gen/proto", "pb"},
-				{pkgpath + "/services/" + name, ""},
-				{"github.com/hysios/mx/service", ""},
-			},
-		}, nil
+		return goctx, nil
 	})
 
 	Service.After(runProtogen)

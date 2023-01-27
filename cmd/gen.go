@@ -77,6 +77,9 @@ func genSubCmds() []*cli.Command {
 				service.AddVariable("Name", c.String("name"))
 				service.AddVariable("FullPackage", c.String("pkg-name"))
 				service.AddVariable("ServiceName", c.String("service-name"))
+				service.AddVariable("ServiceDesc", c.String("service-name")+"_ServiceDesc")
+				service.AddVariable("ProtoPkgName", "pb")
+				service.AddVariable("FileProto", "File_proto_"+c.String("name")+"_proto")
 				service.AddVariable("Methods", parseMethods(c.StringSlice("method")))
 
 				LogError(service.Gen(&gen.Output{

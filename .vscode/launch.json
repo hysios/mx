@@ -67,5 +67,19 @@
                 "GetUser:GET:UserRequest{id:int32 name:string}:UserResponse{id:int32 name:string}"
             ]
         },
+        {
+            "name": "Launch config set",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/cmd",
+            "cwd": "${workspaceFolder}",
+            "args": [
+                "config",
+                "set",
+                "--key",
+                "database.driver=mysql",
+            ]
+        }
     ]
 }

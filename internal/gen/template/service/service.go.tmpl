@@ -9,4 +9,6 @@ import (
 
 {{ .ServiceStruct }}
 
+{{ $length := len .Methods }} {{ if gt $length 0 }}
 {{ .ServiceImplements }}
+{{ end }}

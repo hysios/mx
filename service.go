@@ -3,6 +3,7 @@ package mx
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
@@ -30,6 +31,10 @@ type DynamicService interface {
 
 	AddConn(serviceId string, conn *grpc.ClientConn) error
 	RemoveConn(serviceId string) error
+}
+
+type ServerVersion interface {
+	Version() string
 }
 
 type nopConn struct {
@@ -100,6 +105,7 @@ type localService struct {
 	handler     delegate.ServiceHandlerServer
 }
 
+// ServiceName returns the name of the service.
 func (l *localService) ServiceName() string {
 	return l.name
 }
@@ -168,6 +174,9 @@ type httpMethod struct {
 	Handler runtime.HandlerFunc
 }
 
+// NewDescriptorBuilderService creates a new instance of the descriptorBuilderService type.
+// name is the name of the service.
+// filedescriptor is the protobuf file descriptor that contains the service.
 func NewDescriptorBuilderService(name string, filedescriptor protoreflect.FileDescriptor) *descriptorBuilderService {
 	return &descriptorBuilderService{
 		name:           name,
@@ -235,6 +244,7 @@ type methodOptions struct {
 	GrpcGateway   GrpcGatewayProtocGenOpenapiv2OptionsOpenapiv2Operation `json:"[grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation]"`
 }
 
+// GoogleAPIHTTP is a wrapper for the Google API HTTP client.
 type GoogleAPIHTTP struct {
 	Get    string `json:"get"`
 	Post   string `json:"post"`
@@ -244,6 +254,9 @@ type GoogleAPIHTTP struct {
 	Body   string `json:"body"`
 }
 
+// GrpcGatewayProtocGenOpenapiv2OptionsOpenapiv2Operation describes an operation
+// produced by the OpenAPIv2 generator, for more information about OpenAPI
+// v2.0, see:
 type GrpcGatewayProtocGenOpenapiv2OptionsOpenapiv2Operation struct {
 	Tags    []string `json:"tags"`
 	Summary string   `json:"summary"`
@@ -266,6 +279,7 @@ func (apiHttp *GoogleAPIHTTP) Method() string {
 	}
 }
 
+// Path returns the path of the request.
 func (apiHttp *GoogleAPIHTTP) Path() string {
 	switch {
 	case apiHttp.Get != "":
@@ -283,12 +297,16 @@ func (apiHttp *GoogleAPIHTTP) Path() string {
 	}
 }
 
+// unmarshalOptions unmarshals the options proto message into a methodOptions
+// struct.
 func (d *descriptorBuilderService) unmarshalOptions(options protoreflect.ProtoMessage) (*methodOptions, error) {
+	// Marshal the options into JSON.
 	b, err := protojson.Marshal(options)
 	if err != nil {
 		return nil, err
 	}
 
+	// Unmarshal the JSON into a methodOptions struct.
 	var opts methodOptions
 	if err := json.Unmarshal(b, &opts); err != nil {
 		return nil, err
@@ -323,7 +341,7 @@ func (d *descriptorBuilderService) buildHttpHandler(mux *runtime.ServeMux, metho
 		return httpMethod{}, err
 	}
 
-	d.logger.Info("method options", zap.String("method", string(method.FullName())), zap.Any("options", options))
+	d.logger.Info("method options", zap.String("method", fullname), zap.Any("options", options))
 	switch options.GoogleAPIHTTP.Method() {
 	case http.MethodGet:
 		return httpMethod{
@@ -344,7 +362,12 @@ func (d *descriptorBuilderService) buildHttpHandler(mux *runtime.ServeMux, metho
 				input := dynamicpb.NewMessage(method.Input())
 				output := dynamicpb.NewMessage(method.Output())
 
-				resp, md, err := d.request_GetMethod(annotatedContext, inboundMarshaler, input, output, req, pathParams)
+				if err := d.applyParams(input, method.Input(), tmpl, pathParams); err != nil {
+					runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+					return
+				}
+
+				resp, md, err := d.request_GetMethod(annotatedContext, inboundMarshaler, fullname, input, output, req, pathParams)
 				annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 				if err != nil {
 					runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
@@ -356,42 +379,249 @@ func (d *descriptorBuilderService) buildHttpHandler(mux *runtime.ServeMux, metho
 		}, nil
 	case http.MethodPost:
 		return httpMethod{
-			Method: "POST",
+			Method:  "POST",
+			Pattern: pattern,
+			Handler: func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+				ctx, cancel := context.WithCancel(req.Context())
+				defer cancel()
+				inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+				var err error
+				var annotatedContext context.Context
+				annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, fullname, runtime.WithHTTPPathPattern(options.GoogleAPIHTTP.Path()))
+				if err != nil {
+					runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+					return
+				}
+
+				input := dynamicpb.NewMessage(method.Input())
+				output := dynamicpb.NewMessage(method.Output())
+
+				if err := d.applyParams(input, method.Input(), tmpl, pathParams); err != nil {
+					runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+					return
+				}
+
+				resp, md, err := d.request_PostMethod(annotatedContext, inboundMarshaler, fullname, input, output, req, pathParams)
+				annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+				if err != nil {
+					runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+					return
+				}
+
+				runtime.ForwardResponseMessage(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+			},
 		}, nil
 	case http.MethodPut:
 		return httpMethod{
-			Method: "PUT",
+			Method:  "PUT",
+			Pattern: pattern,
+			Handler: func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+				ctx, cancel := context.WithCancel(req.Context())
+				defer cancel()
+				inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+				var err error
+				var annotatedContext context.Context
+				annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, fullname, runtime.WithHTTPPathPattern(options.GoogleAPIHTTP.Path()))
+				if err != nil {
+					runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+					return
+				}
+
+				input := dynamicpb.NewMessage(method.Input())
+				output := dynamicpb.NewMessage(method.Output())
+
+				if err := d.applyParams(input, method.Input(), tmpl, pathParams); err != nil {
+					runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+					return
+				}
+
+				resp, md, err := d.request_PostMethod(annotatedContext, inboundMarshaler, fullname, input, output, req, pathParams)
+				annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+				if err != nil {
+					runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+					return
+				}
+
+				runtime.ForwardResponseMessage(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+			},
 		}, nil
 	case http.MethodPatch:
 		return httpMethod{
-			Method: "PATCH",
+			Method:  "PATCH",
+			Pattern: pattern,
+			Handler: func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+				ctx, cancel := context.WithCancel(req.Context())
+				defer cancel()
+				inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+				var err error
+				var annotatedContext context.Context
+				annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, fullname, runtime.WithHTTPPathPattern(options.GoogleAPIHTTP.Path()))
+				if err != nil {
+					runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+					return
+				}
+
+				input := dynamicpb.NewMessage(method.Input())
+				output := dynamicpb.NewMessage(method.Output())
+
+				if err := d.applyParams(input, method.Input(), tmpl, pathParams); err != nil {
+					runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+					return
+				}
+
+				resp, md, err := d.request_PostMethod(annotatedContext, inboundMarshaler, fullname, input, output, req, pathParams)
+				annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+				if err != nil {
+					runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+					return
+				}
+
+				runtime.ForwardResponseMessage(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+			},
 		}, nil
 	case http.MethodDelete:
 		return httpMethod{
-			Method: "DELETE",
+			Method:  "DELETE",
+			Pattern: pattern,
+			Handler: func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+				ctx, cancel := context.WithCancel(req.Context())
+				defer cancel()
+				inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+				var err error
+				var annotatedContext context.Context
+				annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, fullname, runtime.WithHTTPPathPattern(options.GoogleAPIHTTP.Path()))
+				if err != nil {
+					runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+					return
+				}
+
+				input := dynamicpb.NewMessage(method.Input())
+				output := dynamicpb.NewMessage(method.Output())
+
+				if err := d.applyParams(input, method.Input(), tmpl, pathParams); err != nil {
+					runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+					return
+				}
+
+				resp, md, err := d.request_PostMethod(annotatedContext, inboundMarshaler, fullname, input, output, req, pathParams)
+				annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+				if err != nil {
+					runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+					return
+				}
+
+				runtime.ForwardResponseMessage(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+			},
 		}, nil
 	default:
 		panic("unknown method")
 	}
 }
 
-func (d *descriptorBuilderService) request_GetMethod(ctx context.Context, marshaler runtime.Marshaler, input, output proto.Message, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func (d *descriptorBuilderService) request_GetMethod(ctx context.Context, marshaler runtime.Marshaler, method string, input, output *dynamicpb.Message, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var metadata runtime.ServerMetadata
 
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
+	// Create a new filter
 	filters := &utilities.DoubleArray{Encoding: map[string]int{}, Base: []int(nil), Check: []int(nil)}
 
 	if err := runtime.PopulateQueryParameters(input, req.Form, filters); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
-	err := d.conns.Invoke(ctx, "/hello.HelloService/Hello", input, output, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	err := d.conns.Invoke(ctx, method, input, output, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return output, metadata, err
 }
 
-func (d *descriptorBuilderService) forward_Method(ctx context.Context, mux *runtime.ServeMux, marshaler runtime.Marshaler, w http.ResponseWriter, req *http.Request, resp proto.Message, opts ...func(context.Context, http.ResponseWriter, proto.Message) error) {
-	panic("nonimplement")
+func (d *descriptorBuilderService) request_PostMethod(ctx context.Context, marshaler runtime.Marshaler, method string, input, output *dynamicpb.Message, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var metadata runtime.ServerMetadata
+
+	newReader, berr := utilities.IOReaderFactory(req.Body)
+	if berr != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
+	}
+	if err := marshaler.NewDecoder(newReader()).Decode(input); err != nil && err != io.EOF {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+
+	err := d.conns.Invoke(ctx, method, input, output, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return output, metadata, err
+}
+
+func (d *descriptorBuilderService) applyParams(msg *dynamicpb.Message, descriptor protoreflect.MessageDescriptor, pattern httprule.Template, pathParams map[string]string) error {
+	var err error
+	for _, v := range pattern.Fields {
+		if pathParams[v] == "" {
+			return status.Errorf(codes.InvalidArgument, "missing parameter %s", v)
+		}
+	}
+
+	// check msg field type and set value
+	for _, v := range pattern.Fields {
+		field := descriptor.Fields().ByName(protoreflect.Name(v))
+		if field == nil {
+			return status.Errorf(codes.InvalidArgument, "missing field %s", v)
+		}
+
+		switch field.Kind() {
+		case protoreflect.StringKind:
+			msg.Set(field, protoreflect.ValueOf(pathParams[v]))
+		case protoreflect.Int32Kind:
+			var i int32
+			i, err = runtime.Int32(pathParams[v])
+			if err != nil {
+				return status.Errorf(codes.InvalidArgument, "invalid parameter %s", v)
+			}
+			msg.Set(field, protoreflect.ValueOf(i))
+		case protoreflect.Int64Kind:
+			var i int64
+			i, err = runtime.Int64(pathParams[v])
+			if err != nil {
+				return status.Errorf(codes.InvalidArgument, "invalid parameter %s", v)
+			}
+			msg.Set(field, protoreflect.ValueOf(i))
+		case protoreflect.Uint32Kind:
+			var i uint32
+			i, err = runtime.Uint32(pathParams[v])
+			if err != nil {
+				return status.Errorf(codes.InvalidArgument, "invalid parameter %s", v)
+			}
+			msg.Set(field, protoreflect.ValueOf(i))
+		case protoreflect.Uint64Kind:
+			var i uint64
+			i, err = runtime.Uint64(pathParams[v])
+			if err != nil {
+				return status.Errorf(codes.InvalidArgument, "invalid parameter %s", v)
+			}
+			msg.Set(field, protoreflect.ValueOf(i))
+		case protoreflect.BoolKind:
+			var b bool
+			b, err = runtime.Bool(pathParams[v])
+			if err != nil {
+				return status.Errorf(codes.InvalidArgument, "invalid parameter %s", v)
+			}
+			msg.Set(field, protoreflect.ValueOf(b))
+		case protoreflect.FloatKind:
+			var f float32
+			f, err = runtime.Float32(pathParams[v])
+			if err != nil {
+				return status.Errorf(codes.InvalidArgument, "invalid parameter %s", v)
+			}
+			msg.Set(field, protoreflect.ValueOf(f))
+		case protoreflect.DoubleKind:
+			var f float64
+			f, err = runtime.Float64(pathParams[v])
+			if err != nil {
+				return status.Errorf(codes.InvalidArgument, "invalid parameter %s", v)
+			}
+			msg.Set(field, protoreflect.ValueOf(f))
+		default:
+			return status.Errorf(codes.InvalidArgument, "invalid field type %s", field.Kind())
+		}
+	}
+
+	return nil
 }

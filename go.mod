@@ -3,6 +3,8 @@ module github.com/hysios/mx
 go 1.19
 
 require (
+	github.com/go-redis/redis/v8 v8.11.5
+	github.com/go-redis/redismock/v8 v8.11.5
 	github.com/golang/glog v1.0.0
 	github.com/golang/protobuf v1.5.2
 	github.com/gorilla/handlers v1.5.1
@@ -15,6 +17,7 @@ require (
 	github.com/iancoleman/strcase v0.2.0
 	github.com/kr/pretty v0.3.1
 	github.com/prometheus/client_golang v1.14.0
+	github.com/stretchr/objx v0.5.0
 	github.com/tj/assert v0.0.3
 	github.com/urfave/cli/v2 v2.23.5
 	github.com/yoheimuta/go-protoparser/v4 v4.7.0
@@ -32,6 +35,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.1.2 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.2 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/fatih/color v1.13.0 // indirect
 	github.com/felixge/httpsnoop v1.0.1 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect

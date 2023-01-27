@@ -8,6 +8,9 @@ import (
 
 func main() {
     // Services Register
-	srv := service.New("{{ .Vars.ServiceName }}", &{{ .PkgName }}.{{ .Vars.ServiceName }}{}, service.WithServiceDesc(&pb.{{ .Vars.ServiceName }}_ServiceDesc))
+	srv := server.NewServiceFileDescriptor(&{{.Vars.ProtoPkgName}}.{{ .Vars.ServiceDesc }},
+			&{{ .PkgName }}.{{ .Vars.ServiceName }}{},
+			{{.Vars.ProtoPkgName}}.{{ .Vars.FileProto }},
+		)
 	srv.Start()
 }

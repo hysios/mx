@@ -7,6 +7,7 @@ import (
 
 	"github.com/golang/protobuf/proto"
 	"github.com/hashicorp/consul/api"
+	"github.com/hysios/mx"
 	"github.com/hysios/mx/discovery"
 	"github.com/hysios/mx/discovery/agent"
 	"github.com/hysios/mx/logger"
@@ -45,7 +46,12 @@ func (r *resolver) consulResolverURI(srv *api.AgentService) string {
 }
 
 func (r *resolver) normalResolveURI(srv *api.AgentService) string {
-	return fmt.Sprintf("%s:%d", srv.Address, srv.Port)
+	target, ok := srv.Meta["targetURI"]
+	if !ok {
+		return fmt.Sprintf("%s:%d", srv.Address, srv.Port)
+	}
+
+	return target
 }
 
 type resolverURI func(*api.AgentService) string
@@ -125,7 +131,7 @@ func (c *consulDiscovery) Run() error {
 	for {
 		select {
 		case <-tick.C:
-			services, err := c.filterServices(agent)
+			services, err := c.filterServices(agent, discovery.WithServiceType(mx.ServerType))
 			if err != nil {
 				continue
 			}
@@ -145,13 +151,7 @@ func (c *consulDiscovery) Run() error {
 					Address:   services[id].Address,
 					Namespace: services[id].Namespace,
 					TargetURI: c.resolverURI(services[id]),
-				}
-
-				if serviceType, ok := services[id].Meta["service_type"]; ok {
-					desc.Type = serviceType
-					if serviceType != "grpc_server" {
-						continue
-					}
+					Group:     services[id].Meta["group"],
 				}
 
 				if services[id].Meta["file_descriptor_key"] != "" {
@@ -195,27 +195,26 @@ func (c *consulDiscovery) Run() error {
 	}
 }
 
-func (c *consulDiscovery) filterServices(agent *api.Agent) (map[string]*api.AgentService, error) {
+func (c *consulDiscovery) filterServices(agent *api.Agent, optfn ...discovery.LookupOptionFunc) (map[string]*api.AgentService, error) {
+	var (
+		opts = discovery.LookupOption{}
+	)
+	for _, fn := range optfn {
+		fn(&opts)
+	}
+
 	services, err := agent.ServicesWithFilterOpts("", &api.QueryOptions{
 		Namespace: c.Namespace,
 	})
 
 	filterd := make(map[string]*api.AgentService)
 	for _, srv := range services {
-		if srv.Meta["service_type"] == "grpc_server" {
+		if opts.MatchServiceType(srv.Meta["service_type"]) {
 			filterd[srv.ID] = srv
 		}
 	}
 
 	return filterd, err
-}
-
-func (c *consulDiscovery) consulResolverURI(srv *api.AgentService) string {
-	return fmt.Sprintf("consul://%s/%s", c.config.Address, srv.Service)
-}
-
-func (c *consulDiscovery) normalResolveURI(srv *api.AgentService) string {
-	return fmt.Sprintf("%s:%d", srv.Address, srv.Port)
 }
 
 func (c *consulDiscovery) diffServices(services map[string]*api.AgentService) (adds []string, updates []string, dels []string) {
