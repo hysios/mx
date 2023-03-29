@@ -17,3 +17,9 @@ type RegistryMessage struct {
 	Method string
 	Desc   ServiceDesc
 }
+
+var Namespace = "mx"
+
+func SetNamespace(ns string) {
+	Namespace = ns
+}

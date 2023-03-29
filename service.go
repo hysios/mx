@@ -201,6 +201,7 @@ func (d *descriptorBuilderService) Register(ctx context.Context, gw *Gateway) er
 	}
 
 	for _, handler := range d.handlers {
+		d.logger.Info("registering http handler", zap.String("method", handler.Method), zap.String("pattern", handler.Pattern.String()))
 		gw.gwmux.Handle(handler.Method, handler.Pattern, handler.Handler)
 	}
 
@@ -267,15 +268,15 @@ func (apiHttp *GoogleAPIHTTP) Method() string {
 	case apiHttp.Get != "":
 		return http.MethodGet
 	case apiHttp.Post != "":
-		return http.MethodGet
+		return http.MethodPost
 	case apiHttp.Put != "":
-		return http.MethodGet
+		return http.MethodPut
 	case apiHttp.Patch != "":
-		return http.MethodGet
+		return http.MethodPatch
 	case apiHttp.Delete != "":
-		return http.MethodGet
+		return http.MethodDelete
 	default:
-		return ""
+		return http.MethodGet
 	}
 }
 

@@ -38,6 +38,7 @@ func NewConsulAgent(optFns ...AgentOptionFunc) discovery.Agent {
 
 	if opt.Config == nil {
 		opt.Config = api.DefaultConfig()
+		opt.Config.Namespace = discovery.Namespace
 	}
 
 	agent := &consulAgent{

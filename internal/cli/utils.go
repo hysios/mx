@@ -189,7 +189,7 @@ func ParseMethod(s string) (*Method, error) {
 	// check input and output
 	inouts := InputRegexp.FindAllStringSubmatch(preSections[3], 2)
 	if len(inouts) != 2 {
-		return nil, errors.New("invalid input or output")
+		return nil, errors.New("invalid Request or Response message definition")
 	}
 
 	// check input

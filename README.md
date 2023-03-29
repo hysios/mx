@@ -1,5 +1,9 @@
 # MX is microservice gateway
 
+## install mx framework cli
+```
+
+```
 ## Declare config 
 
 ### setup redis backend config
