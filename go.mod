@@ -18,6 +18,7 @@ require (
 	github.com/kr/pretty v0.3.1
 	github.com/prometheus/client_golang v1.14.0
 	github.com/stretchr/objx v0.5.0
+	github.com/stretchr/testify v1.8.1
 	github.com/tj/assert v0.0.3
 	github.com/urfave/cli/v2 v2.23.5
 	github.com/yoheimuta/go-protoparser/v4 v4.7.0
@@ -62,12 +63,11 @@ require (
 	github.com/prometheus/procfs v0.8.0 // indirect
 	github.com/rogpeppe/go-internal v1.9.0 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
-	github.com/stretchr/testify v1.8.1 // indirect
 	github.com/xrash/smetrics v0.0.0-20201216005158-039620a65673 // indirect
 	go.uber.org/atomic v1.10.0 // indirect
-	golang.org/x/net v0.3.0 // indirect
-	golang.org/x/sys v0.3.0 // indirect
-	golang.org/x/text v0.5.0 // indirect
+	golang.org/x/net v0.7.0 // indirect
+	golang.org/x/sys v0.5.0 // indirect
+	golang.org/x/text v0.7.0 // indirect
 	gopkg.in/check.v1 v1.0.0-20200227125254-8fa46927fb4f // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
