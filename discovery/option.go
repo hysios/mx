@@ -25,3 +25,7 @@ func (option *LookupOption) MatchServiceType(serviceType string) bool {
 	}
 	return option.ServiceType == serviceType
 }
+
+func (option *LookupOption) MatchNamespace(ns string) bool {
+	return option.Namespace == ns
+}

@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/hysios/mx"
+	_ "github.com/hysios/mx/internal/gateway"
 	"github.com/hysios/mx/middleware"
 )
 

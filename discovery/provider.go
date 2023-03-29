@@ -18,7 +18,7 @@ type RegistryMessage struct {
 	Desc   ServiceDesc
 }
 
-var Namespace = "mx"
+var Namespace = "mx" // "default"
 
 func SetNamespace(ns string) {
 	Namespace = ns

@@ -17,7 +17,8 @@ import (
 )
 
 type AgentOption struct {
-	Config *api.Config
+	Config    *api.Config
+	Namespace string
 }
 
 type AgentOptionFunc func(*AgentOption)
@@ -28,9 +29,16 @@ func WithConfig(cfg *api.Config) AgentOptionFunc {
 	}
 }
 
+func WithNamespace(ns string) AgentOptionFunc {
+	return func(opt *AgentOption) {
+		opt.Namespace = ns
+	}
+}
+
 func NewConsulAgent(optFns ...AgentOptionFunc) discovery.Agent {
 	var (
 		opt = AgentOption{}
+		ns  = discovery.Namespace
 	)
 	for _, fn := range optFns {
 		fn(&opt)
@@ -38,11 +46,16 @@ func NewConsulAgent(optFns ...AgentOptionFunc) discovery.Agent {
 
 	if opt.Config == nil {
 		opt.Config = api.DefaultConfig()
-		opt.Config.Namespace = discovery.Namespace
+		// opt.Config.Namespace = discovery.Namespace
+	}
+
+	if opt.Namespace != "" {
+		ns = opt.Namespace
 	}
 
 	agent := &consulAgent{
-		opts: opt,
+		opts:      opt,
+		Namespace: ns,
 	}
 
 	cli, err := api.NewClient(opt.Config)
@@ -63,6 +76,7 @@ func NewConsulAgent(optFns ...AgentOptionFunc) discovery.Agent {
 }
 
 type consulAgent struct {
+	Namespace   string
 	cli         *api.Client
 	opts        AgentOption
 	ctx         context.Context
@@ -87,6 +101,10 @@ func (c *consulAgent) Register(desc discovery.ServiceDesc) error {
 
 	var meta = map[string]string{
 		"service_type": desc.Type,
+	}
+
+	if c.Namespace != "" {
+		meta["namespace"] = c.Namespace
 	}
 
 	if desc.FileDescriptor != nil {
@@ -147,7 +165,6 @@ func (c *consulAgent) updateSchedule(desc discovery.ServiceDesc) error {
 	for {
 		select {
 		case t := <-tick.C:
-
 			if err := agent.UpdateTTL("service:"+desc.ID, t.Format("2006-01-02 15:04:05"), api.HealthPassing); err != nil {
 				log.Printf("update ttl failed: %v", err)
 				continue
@@ -210,9 +227,7 @@ func (c *consulAgent) Lookup(serviceName string, optfns ...discovery.LookupOptio
 		fn(&opt)
 	}
 
-	services, err := agent.ServicesWithFilterOpts(fmt.Sprintf("Service==%s", serviceName), &api.QueryOptions{
-		Namespace: opt.Namespace,
-	})
+	services, err := agent.ServicesWithFilterOpts(fmt.Sprintf("Service==%s", serviceName), nil)
 	if err != nil {
 		return nil, false
 	}
@@ -220,6 +235,10 @@ func (c *consulAgent) Lookup(serviceName string, optfns ...discovery.LookupOptio
 	var descs []discovery.ServiceDesc
 	for _, service := range services {
 		if !opt.MatchServiceType(service.Meta["service_type"]) {
+			continue
+		}
+
+		if !opt.MatchNamespace(service.Meta["namespace"]) {
 			continue
 		}
 

@@ -9,6 +9,7 @@ import (
 var Default = &ServiceDiscovery{}
 
 type ServiceDiscovery struct {
+	Namespace        string
 	discoveryFns     []func(desc RegistryMessage)
 	closefn          context.CancelFunc
 	providerRegistry utils.Registry[Provider]
@@ -37,6 +38,9 @@ func (discovery *ServiceDiscovery) Start(ctx context.Context) error {
 }
 
 func (discovery *ServiceDiscovery) init() {
+	if discovery.Namespace == "" {
+		discovery.Namespace = Namespace
+	}
 }
 
 func (discovery *ServiceDiscovery) run(ctx context.Context) error {

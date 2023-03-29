@@ -58,8 +58,13 @@ type resolverURI func(*api.AgentService) string
 
 // init
 func (c *consulDiscovery) init() error {
+	if c.Namespace == "" {
+		c.Namespace = discovery.Namespace
+	}
+
 	if c.config == nil {
 		c.config = api.DefaultConfig()
+		// c.config.Namespace = c.Namespace
 	}
 
 	if c.cli == nil {
@@ -197,18 +202,22 @@ func (c *consulDiscovery) Run() error {
 
 func (c *consulDiscovery) filterServices(agent *api.Agent, optfn ...discovery.LookupOptionFunc) (map[string]*api.AgentService, error) {
 	var (
-		opts = discovery.LookupOption{}
+		opts = discovery.LookupOption{
+			Namespace: c.Namespace,
+		}
 	)
 	for _, fn := range optfn {
 		fn(&opts)
 	}
 
-	services, err := agent.ServicesWithFilterOpts("", &api.QueryOptions{
-		Namespace: c.Namespace,
-	})
+	services, err := agent.ServicesWithFilterOpts("", nil)
 
 	filterd := make(map[string]*api.AgentService)
 	for _, srv := range services {
+		if !opts.MatchNamespace(srv.Meta["namespace"]) {
+			continue
+		}
+
 		if opts.MatchServiceType(srv.Meta["service_type"]) {
 			filterd[srv.ID] = srv
 		}
