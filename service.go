@@ -388,7 +388,6 @@ func (d *descriptorBuilderService) buildHttpHandler(mux *runtime.ServeMux, metho
 				inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 				var err error
 				var annotatedContext context.Context
-				d.logger.Debug("HTTP POST METHOD", zap.String("method", fullname), zap.String("path", options.GoogleAPIHTTP.Path()))
 				annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, fullname, runtime.WithHTTPPathPattern(options.GoogleAPIHTTP.Path()))
 				if err != nil {
 					runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
