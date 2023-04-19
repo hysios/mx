@@ -58,13 +58,9 @@ type resolverURI func(*api.AgentService) string
 
 // init
 func (c *consulDiscovery) init() error {
-	if c.Namespace == "" {
-		c.Namespace = discovery.Namespace
-	}
 
 	if c.config == nil {
 		c.config = api.DefaultConfig()
-		// c.config.Namespace = c.Namespace
 	}
 
 	if c.cli == nil {
@@ -94,6 +90,15 @@ func (c *consulDiscovery) init() error {
 	}
 
 	return nil
+}
+
+// namespace
+func (c *consulDiscovery) namespace() string {
+	if c.Namespace == "" {
+		return discovery.Namespace
+	}
+
+	return c.Namespace
 }
 
 func (c *consulDiscovery) getFileDescriptor(key string) (desc protoreflect.FileDescriptor, err error) {
@@ -154,7 +159,7 @@ func (c *consulDiscovery) Run() error {
 					ID:        id,
 					Service:   services[id].Service,
 					Address:   services[id].Address,
-					Namespace: services[id].Namespace,
+					Namespace: services[id].Meta["namespace"],
 					TargetURI: c.resolverURI(services[id]),
 					Group:     services[id].Meta["group"],
 				}
@@ -203,7 +208,7 @@ func (c *consulDiscovery) Run() error {
 func (c *consulDiscovery) filterServices(agent *api.Agent, optfn ...discovery.LookupOptionFunc) (map[string]*api.AgentService, error) {
 	var (
 		opts = discovery.LookupOption{
-			Namespace: c.Namespace,
+			Namespace: c.namespace(),
 		}
 	)
 	for _, fn := range optfn {

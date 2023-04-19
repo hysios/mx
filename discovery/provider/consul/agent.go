@@ -38,7 +38,6 @@ func WithNamespace(ns string) AgentOptionFunc {
 func NewConsulAgent(optFns ...AgentOptionFunc) discovery.Agent {
 	var (
 		opt = AgentOption{}
-		ns  = discovery.Namespace
 	)
 	for _, fn := range optFns {
 		fn(&opt)
@@ -49,13 +48,8 @@ func NewConsulAgent(optFns ...AgentOptionFunc) discovery.Agent {
 		// opt.Config.Namespace = discovery.Namespace
 	}
 
-	if opt.Namespace != "" {
-		ns = opt.Namespace
-	}
-
 	agent := &consulAgent{
-		opts:      opt,
-		Namespace: ns,
+		opts: opt,
 	}
 
 	cli, err := api.NewClient(opt.Config)
@@ -85,6 +79,14 @@ type consulAgent struct {
 	pack        discovery.FileDescriptorPacker
 }
 
+func (c *consulAgent) namespace() string {
+	if c.Namespace == "" {
+		return discovery.Namespace
+	}
+
+	return c.Namespace
+}
+
 func (c *consulAgent) Register(desc discovery.ServiceDesc) error {
 	var (
 		agent            = c.cli.Agent()
@@ -103,8 +105,8 @@ func (c *consulAgent) Register(desc discovery.ServiceDesc) error {
 		"service_type": desc.Type,
 	}
 
-	if c.Namespace != "" {
-		meta["namespace"] = c.Namespace
+	if c.namespace() != "" {
+		meta["namespace"] = c.namespace()
 	}
 
 	if desc.FileDescriptor != nil {

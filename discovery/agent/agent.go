@@ -33,8 +33,27 @@ func Deregister(serviceID string) error {
 }
 
 var (
-	_config *config.Config
+	_config     *config.Config
+	defaultDesc = []discovery.ServiceDesc{
+		{
+			ID:        "",
+			TargetURI: "redis://127.0.0.1:6379/mx.config",
+			Type:      "mx.config",
+		},
+	}
 )
+
+func defaultServiceDesc() discovery.ServiceDesc {
+	return discovery.ServiceDesc{
+		ID:        "",
+		TargetURI: "redis://127.0.0.1:6379/" + discovery.Namespace + ".config",
+		Type:      "mx.config",
+	}
+}
+
+func configName() string {
+	return discovery.Namespace + ".config"
+}
 
 func Config(defaults map[string]interface{}) (*config.Config, error) {
 	if _config != nil {
@@ -45,13 +64,19 @@ func Config(defaults map[string]interface{}) (*config.Config, error) {
 		return nil, errors.New("discovery agent is not set")
 	}
 
-	descs, ok := Default.Lookup("mx.Config", discovery.WithServiceType("config_provider"))
+	descs, ok := Default.Lookup(configName(), discovery.WithServiceType("config_provider"))
 	if !ok {
-		return nil, errors.New("mx.Config service not found")
+		// return nil, errors.New("mx.Config service not found")
+		descs = []discovery.ServiceDesc{
+			defaultServiceDesc(),
+		}
 	}
 
 	if len(descs) == 0 {
-		return nil, errors.New("mx.Config service not found")
+		// return nil, errors.New("mx.Config service not found")
+		descs = []discovery.ServiceDesc{
+			defaultServiceDesc(),
+		}
 	}
 
 	getpass := func(u *url.URL) string {
@@ -129,4 +154,9 @@ func RegisterServer(server *server.Server) error {
 	}()
 
 	return nil
+}
+
+type lazyProvider struct {
+	provider  config.ConfigProvider
+	providers []config.ConfigProvider
 }

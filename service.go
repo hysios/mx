@@ -388,6 +388,7 @@ func (d *descriptorBuilderService) buildHttpHandler(mux *runtime.ServeMux, metho
 				inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 				var err error
 				var annotatedContext context.Context
+				d.logger.Debug("HTTP POST METHOD", zap.String("method", fullname), zap.String("path", options.GoogleAPIHTTP.Path()))
 				annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, fullname, runtime.WithHTTPPathPattern(options.GoogleAPIHTTP.Path()))
 				if err != nil {
 					runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
@@ -397,12 +398,12 @@ func (d *descriptorBuilderService) buildHttpHandler(mux *runtime.ServeMux, metho
 				input := dynamicpb.NewMessage(method.Input())
 				output := dynamicpb.NewMessage(method.Output())
 
-				if err := d.applyParams(input, method.Input(), tmpl, pathParams); err != nil {
-					runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
-					return
-				}
+				// if err := d.applyParams(input, method.Input(), tmpl, pathParams); err != nil {
+				// 	runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+				// 	return
+				// }
 
-				resp, md, err := d.request_PostMethod(annotatedContext, inboundMarshaler, fullname, input, output, req, pathParams)
+				resp, md, err := d.request_PostMethod2(annotatedContext, inboundMarshaler, fullname, method, tmpl, input, output, req, pathParams)
 				annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 				if err != nil {
 					runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
@@ -431,12 +432,13 @@ func (d *descriptorBuilderService) buildHttpHandler(mux *runtime.ServeMux, metho
 				input := dynamicpb.NewMessage(method.Input())
 				output := dynamicpb.NewMessage(method.Output())
 
-				if err := d.applyParams(input, method.Input(), tmpl, pathParams); err != nil {
-					runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
-					return
-				}
+				// if err := d.applyParams(input, method.Input(), tmpl, pathParams); err != nil {
+				// 	runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+				// 	return
+				// }
 
-				resp, md, err := d.request_PostMethod(annotatedContext, inboundMarshaler, fullname, input, output, req, pathParams)
+				resp, md, err := d.request_PostMethod2(annotatedContext, inboundMarshaler, fullname, method, tmpl, input, output, req, pathParams)
+				// resp, md, err := d.request_PostMethod(annotatedContext, inboundMarshaler, fullname, input, output, req, pathParams)
 				annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 				if err != nil {
 					runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
@@ -465,12 +467,12 @@ func (d *descriptorBuilderService) buildHttpHandler(mux *runtime.ServeMux, metho
 				input := dynamicpb.NewMessage(method.Input())
 				output := dynamicpb.NewMessage(method.Output())
 
-				if err := d.applyParams(input, method.Input(), tmpl, pathParams); err != nil {
-					runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
-					return
-				}
-
-				resp, md, err := d.request_PostMethod(annotatedContext, inboundMarshaler, fullname, input, output, req, pathParams)
+				// if err := d.applyParams(input, method.Input(), tmpl, pathParams); err != nil {
+				// 	runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+				// 	return
+				// }
+				resp, md, err := d.request_PostMethod2(annotatedContext, inboundMarshaler, fullname, method, tmpl, input, output, req, pathParams)
+				// resp, md, err := d.request_PostMethod(annotatedContext, inboundMarshaler, fullname, input, output, req, pathParams)
 				annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 				if err != nil {
 					runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
@@ -499,12 +501,13 @@ func (d *descriptorBuilderService) buildHttpHandler(mux *runtime.ServeMux, metho
 				input := dynamicpb.NewMessage(method.Input())
 				output := dynamicpb.NewMessage(method.Output())
 
-				if err := d.applyParams(input, method.Input(), tmpl, pathParams); err != nil {
-					runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
-					return
-				}
+				// if err := d.applyParams(input, method.Input(), tmpl, pathParams); err != nil {
+				// 	runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+				// 	return
+				// }
 
-				resp, md, err := d.request_PostMethod(annotatedContext, inboundMarshaler, fullname, input, output, req, pathParams)
+				resp, md, err := d.request_PostMethod2(annotatedContext, inboundMarshaler, fullname, method, tmpl, input, output, req, pathParams)
+				// resp, md, err := d.request_PostMethod(annotatedContext, inboundMarshaler, fullname, input, output, req, pathParams)
 				annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 				if err != nil {
 					runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
@@ -544,11 +547,38 @@ func (d *descriptorBuilderService) request_PostMethod(ctx context.Context, marsh
 	if berr != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
 	}
+
 	if err := marshaler.NewDecoder(newReader()).Decode(input); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
 	err := d.conns.Invoke(ctx, method, input, output, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return output, metadata, err
+}
+
+func (d *descriptorBuilderService) request_PostMethod2(ctx context.Context,
+	marshaler runtime.Marshaler,
+	methodName string,
+	method protoreflect.MethodDescriptor,
+	tmpl httprule.Template,
+	input, output *dynamicpb.Message,
+	req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var metadata runtime.ServerMetadata
+
+	newReader, berr := utilities.IOReaderFactory(req.Body)
+	if berr != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
+	}
+
+	if err := marshaler.NewDecoder(newReader()).Decode(input); err != nil && err != io.EOF {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+
+	if err := d.applyParams(input, method.Input(), tmpl, pathParams); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+
+	err := d.conns.Invoke(ctx, methodName, input, output, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return output, metadata, err
 }
 

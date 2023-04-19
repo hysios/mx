@@ -53,11 +53,11 @@ func New(optfns ...GatewayOptFunc) *mx.Gateway {
 		gw.Logger = opts.Logger
 	}
 
+	gw.Use(middleware.Defaults...)
+
 	if opts.Middlewares != nil {
 		gw.Use(opts.Middlewares...)
 	}
-
-	gw.Use(middleware.Defaults...)
 
 	if opts.ClientUnaryInterceptors != nil {
 		gw.AddClientUnaryInterceptor(opts.ClientUnaryInterceptors...)

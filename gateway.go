@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/http/pprof"
 
 	"github.com/gorilla/mux"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
@@ -29,7 +30,7 @@ type Gateway struct {
 	serve                    *http.Server                   // http server
 	prevAddr                 string                         // previous listen address
 	discovery                *discovery.ServiceDiscovery    // service discovery registry
-	routers                  []map[string]http.Handler      // custom routers
+	routers                  []map[string]routeHandler      // custom routers
 	notFounder               http.Handler                   // not found handler
 	services                 utils.Map[string, Service]     // services
 	ctx                      context.Context                // context
@@ -37,6 +38,19 @@ type Gateway struct {
 	clientUnaryInterceptors  []grpc.UnaryClientInterceptor  // client unary interceptors
 	clientStreamInterceptors []grpc.StreamClientInterceptor // client stream interceptors
 	run                      runqueue
+}
+
+type routeMethod int
+
+const (
+	route_Prefix routeMethod = iota
+	route_Route
+)
+
+type routeHandler struct {
+	Path    string
+	Method  routeMethod
+	Handler http.Handler
 }
 
 type serviceConn struct {
@@ -63,7 +77,8 @@ func (gw *Gateway) Use(middlewares ...Middleware) {
 }
 
 func (gw *Gateway) HandleFunc(path string, handler func(http.ResponseWriter, *http.Request)) {
-	gw.routers = append(gw.routers, map[string]http.Handler{path: http.HandlerFunc(handler)})
+	// gw.routers = append(gw.routers, map[string]http.Handler{path: http.HandlerFunc(handler)})
+	gw.routers = append(gw.routers, map[string]routeHandler{path: routeHandler{Path: path, Method: route_Route, Handler: http.HandlerFunc(handler)}})
 }
 
 func (gw *Gateway) NotFoundFunc(handler http.Handler) {
@@ -150,13 +165,14 @@ func (gw *Gateway) ServeTLS(addr string, certFile, keyFile string) error {
 func (gw *Gateway) createServer(gwmux *runtime.ServeMux) *http.Server {
 
 	// build router and initial middlewares
-	// r := gw.buildRouter()
+	r := gw.buildRouter()
 
-	// r.PathPrefix(gw.ApiPrefix).Handler(gw.gwmux)
+	r.PathPrefix(gw.ApiPrefix).Handler(gw.gwmux)
 
 	httpServer := &http.Server{
 		// Addr:    gw.prevAddr,
-		Handler: gw.gwmux,
+		// Handler: gw.gwmux,
+		Handler: r,
 	}
 
 	return httpServer
@@ -166,6 +182,7 @@ func (gw *Gateway) buildRouter() *mux.Router {
 	r := mux.NewRouter()
 	// use middlewares
 	gw.addMetrics()
+	gw.addPprof()
 	gw.buildMiddlewares(r)
 	gw.setupRouters(r)
 
@@ -182,17 +199,37 @@ func (gw *Gateway) buildMiddlewares(r *mux.Router) {
 func (gw *Gateway) setupRouters(r *mux.Router) {
 	for _, router := range gw.routers {
 		for path, handler := range router {
-			r.Handle(path, handler)
+			switch handler.Method {
+			case route_Route:
+				r.Handle(path, handler.Handler)
+			case route_Prefix:
+				r.PathPrefix(path).Handler(handler.Handler)
+			}
+			// r.PathPrefix(path).Handler(handler)
 		}
 	}
 }
 
 func (gw *Gateway) addRouter(path string, handler http.Handler) {
-	gw.routers = append(gw.routers, map[string]http.Handler{path: handler})
+	// gw.routers = append(gw.routers, map[string]http.Handler{path: handler})
+	gw.routers = append(gw.routers, map[string]routeHandler{path: routeHandler{Path: path, Method: route_Route, Handler: handler}})
+}
+
+func (gw *Gateway) addPrefixRoute(path string, handler http.Handler) {
+	gw.routers = append(gw.routers, map[string]routeHandler{path: routeHandler{Path: path, Method: route_Prefix, Handler: handler}})
 }
 
 func (gw *Gateway) addMetrics() {
 	gw.addRouter("/metrics", promhttp.Handler())
+}
+
+// addPprof
+func (gw *Gateway) addPprof() {
+	gw.addPrefixRoute("/debug/pprof/", http.HandlerFunc(pprof.Index))
+	gw.addPrefixRoute("/debug/pprof/cmdline", http.HandlerFunc(pprof.Cmdline))
+	gw.addPrefixRoute("/debug/pprof/profile", http.HandlerFunc(pprof.Profile))
+	gw.addPrefixRoute("/debug/pprof/symbol", http.HandlerFunc(pprof.Symbol))
+	gw.addPrefixRoute("/debug/pprof/trace", http.HandlerFunc(pprof.Trace))
 }
 
 func (gw *Gateway) initGWServer() {
