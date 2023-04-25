@@ -24,6 +24,37 @@ var (
 	commonOption   MakeOption
 )
 
+func getDiscoveryConn(serviceName string, opts *MakeOption) (grpc.ClientConnInterface, error) {
+	services, ok := agent.Default.Lookup(serviceName,
+		discovery.WithServiceType(mx.ServerType),
+		discovery.WithNamespace(discovery.Namespace),
+	)
+	if !ok {
+		return nil, mx.ErrServiceNotFound
+	}
+
+	if len(services) == 0 {
+		return nil, mx.ErrServiceNotFound
+	}
+
+	logger.Logger.Info("dial", zap.String("target", services[0].TargetURI))
+	rawconn, err := dial(services[0].TargetURI, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	return rawconn, nil
+}
+
+func getDialConn(opts *MakeOption) (grpc.ClientConnInterface, error) {
+	rawconn, err := dial(opts.ConnectURI, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	return rawconn, nil
+}
+
 func Make(serviceName string, impl interface{}, optfns ...MakeOptionFunc) error {
 	opts := evaluteOptions(optfns...)
 
@@ -32,35 +63,33 @@ func Make(serviceName string, impl interface{}, optfns ...MakeOptionFunc) error 
 		return mx.ErrServiceNotFound
 	}
 
-	services, ok := agent.Default.Lookup(serviceName, discovery.WithServiceType(mx.ServerType))
-	if !ok {
-		return mx.ErrServiceNotFound
-	}
+	var client interface{}
 
-	if len(services) == 0 {
-		return mx.ErrServiceNotFound
-	}
-
-	var conn grpc.ClientConnInterface
-
-	if opts.mockClient != nil {
-		conn = opts.mockClient
-	} else {
-		rawconn, err := dial(services[0].TargetURI, opts)
+	if opts.ConnectURI != "" {
+		rawconn, err := getDialConn(opts)
 		if err != nil {
 			return err
 		}
-		conn = rawconn
-	}
 
-	proxy := delegate.ClientCtor{ClientCtor: ctor()}
-	client, err := proxy.Call(conn)
-	if err != nil {
-		return err
+		proxy := delegate.ClientCtor{ClientCtor: ctor()}
+		client, err = proxy.Call(rawconn)
+		if err != nil {
+			return err
+		}
+	} else {
+		rawconn, err := getDiscoveryConn(serviceName, opts)
+		if err != nil {
+			return err
+		}
+
+		proxy := delegate.ClientCtor{ClientCtor: ctor()}
+		client, err = proxy.Call(rawconn)
+		if err != nil {
+			return err
+		}
 	}
 
 	reflect.ValueOf(impl).Elem().Set(reflect.ValueOf(client))
-
 	return nil
 }
 
@@ -93,26 +122,26 @@ func LMake(serviceName string, recvfn interface{}, optfns ...MakeOptionFunc) err
 
 	ctorfn := reflect.MakeFunc(receType, func(_ []reflect.Value) []reflect.Value {
 		val := cacheWith(serviceName, func() any {
-			services, ok := agent.Default.Lookup(serviceName)
-			if !ok {
-				panic(mx.ErrServiceNotFound)
-			}
+			var (
+				conn   grpc.ClientConnInterface
+				client interface{}
+				err    error
+			)
 
-			if len(services) == 0 {
-				panic(mx.ErrServiceNotFound)
-			}
-
-			var conn grpc.ClientConnInterface
 			if opts.mockClient != nil {
 				conn = opts.mockClient
-			} else {
-				logger.Logger.Info("dial", zap.String("target", services[0].TargetURI))
-				rawconn, err := dial(services[0].TargetURI, opts)
+			} else if opts.ConnectURI != "" {
+				logger.Logger.Info("dial", zap.String("target", opts.ConnectURI))
+				conn, err = getDialConn(opts)
 				if err != nil {
 					panic(err)
 				}
-
-				sgconn := mx.NewSignalConn(rawconn)
+			} else {
+				conn, err = getDiscoveryConn(serviceName, opts)
+				if err != nil {
+					panic(err)
+				}
+				sgconn := mx.NewSignalConn(conn)
 				go func() {
 					err := <-sgconn.Err()
 					logger.Logger.Warn("grpc connection error", zap.Error(err))
@@ -123,7 +152,7 @@ func LMake(serviceName string, recvfn interface{}, optfns ...MakeOptionFunc) err
 			}
 
 			proxy := delegate.ClientCtor{ClientCtor: ctor()}
-			client, err := proxy.Call(conn)
+			client, err = proxy.Call(conn)
 			if err != nil {
 				panic(err)
 			}
@@ -175,11 +204,16 @@ func SetStreamClientInterceptor(interceptors ...grpc.StreamClientInterceptor) {
 
 func dial(target string, opts *MakeOption) (*grpc.ClientConn, error) {
 	var (
-		dialOpts = []grpc.DialOption{grpc.WithInsecure()}
+		dialOpts []grpc.DialOption
 	)
+
+	if opts.Insecure {
+		dialOpts = append(dialOpts, grpc.WithInsecure())
+	}
 
 	dialOpts = append(dialOpts, grpc.WithChainUnaryInterceptor(opts.unaryInterceptors...))
 	dialOpts = append(dialOpts, grpc.WithChainStreamInterceptor(opts.streamInterceptors...))
+	dialOpts = append(dialOpts, opts.dialOptions...)
 
 	return grpc.Dial(target, dialOpts...)
 }
