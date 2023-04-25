@@ -43,3 +43,9 @@ func WithDialOptions(dialOptions ...grpc.DialOption) MakeOptionFunc {
 		o.dialOptions = dialOptions
 	}
 }
+
+func WithInsecure(on bool) MakeOptionFunc {
+	return func(o *MakeOption) {
+		o.Insecure = on
+	}
+}
