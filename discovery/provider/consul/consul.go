@@ -123,7 +123,19 @@ func (c *consulDiscovery) getFileDescriptor(key string) (desc protoreflect.FileD
 	}
 
 	desc, err = protodesc.NewFile(out, protoregistry.GlobalFiles)
+	if err != nil {
+		return nil, err
+	}
+
+	safeRegister(desc)
 	return
+}
+
+func safeRegister(desc protoreflect.FileDescriptor) {
+	defer func() {
+		recover()
+	}()
+	protoregistry.GlobalFiles.RegisterFile(desc)
 }
 
 func (c *consulDiscovery) Run() error {
@@ -215,10 +227,25 @@ func (c *consulDiscovery) filterServices(agent *api.Agent, optfn ...discovery.Lo
 		fn(&opts)
 	}
 
-	services, err := agent.ServicesWithFilterOpts("", nil)
-
 	filterd := make(map[string]*api.AgentService)
-	for _, srv := range services {
+
+	services, err := agent.ServicesWithFilterOpts("", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	checks, err := agent.Checks()
+	if err != nil {
+		return nil, err
+	}
+
+	// logger.Logger.Debug("checks services", zap.Any("checks", checks), zap.Any("services", services))
+	for name, srv := range services {
+
+		if check, ok := checks["service:"+name]; ok && check.Status != "passing" {
+			continue
+		}
+
 		if !opts.MatchNamespace(srv.Meta["namespace"]) {
 			continue
 		}
@@ -226,6 +253,7 @@ func (c *consulDiscovery) filterServices(agent *api.Agent, optfn ...discovery.Lo
 		if opts.MatchServiceType(srv.Meta["service_type"]) {
 			filterd[srv.ID] = srv
 		}
+
 	}
 
 	return filterd, err

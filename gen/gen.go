@@ -57,6 +57,13 @@ func (fs *FileSystem) Gen(output *Output) error {
 	if output.Verbose {
 		fs.logger, _ = zap.NewDevelopment(zap.IncreaseLevel(zap.DebugLevel))
 	}
+	if output.Directory == "" {
+		if name, ok := fs.GetValue("Name").(string); ok {
+			cwd, _ := os.Getwd()
+			output.Directory = filepath.Join(cwd, name)
+		}
+	}
+
 	fs.AddVariable("OutputDir", output.Directory)
 	// call before
 	for _, call := range fs.beforesCall {
@@ -160,6 +167,15 @@ func (fs *FileSystem) AddLocal(filename string, variable string, value interface
 
 func (fs *FileSystem) AddIgnore(name string) {
 	fs.Ignores = append(fs.Ignores, name)
+}
+
+// GetValue
+func (fs *FileSystem) GetValue(name string) interface{} {
+	if val, ok := fs.Variables[name]; ok {
+		return val
+	}
+
+	return nil
 }
 
 // Range calls f sequentially for each file in the file system.

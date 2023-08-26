@@ -3,9 +3,11 @@ package server
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -207,17 +209,48 @@ func (s *Server) Serve(lns net.Listener) error {
 }
 
 func (s *Server) ServeOn(addr string) error {
-	h, port, err := net.SplitHostPort(addr)
-	if err != nil {
-		return err
-	}
+	// h, port, err := net.SplitHostPort(addr)
+	// if err != nil {
+	// 	return err
+	// }
+	// if port == "0" && s.opts.PersistentPort {
+	// 	port = s.loadPersistentPort()
+	// }
 
-	ln, err := net.Listen("tcp", net.JoinHostPort(h, port))
+	ln, err := s.ListenWithPersistentPort(addr, s.opts.PersistentPort)
+	// ln, err := net.Listen("tcp", net.JoinHostPort(h, port))
 	if err != nil {
 		return err
 	}
 
 	return s.Serve(ln)
+}
+
+// ListenWithPersistentPort listen on the given address, and save the port to file
+func (s *Server) ListenWithPersistentPort(addr string, persistent bool) (ln net.Listener, err error) {
+	h, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, err
+	}
+
+	if port == "0" && persistent {
+		_port := s.loadPersistentPort()
+		if _port != "" {
+			port = _port
+		} else {
+			defer func() {
+				if ln != nil {
+					_, port, err := net.SplitHostPort(ln.Addr().String())
+					if err != nil {
+						return
+					}
+					_ = s.savePersistentPort(port)
+				}
+			}()
+		}
+	}
+
+	return net.Listen("tcp", net.JoinHostPort(h, port))
 }
 
 func (s *Server) Start() error {
@@ -296,6 +329,49 @@ func (s *Server) ServiceDescs() []discovery.ServiceDesc {
 	}
 
 	return descs
+}
+
+// loadPersistentPort
+func (s *Server) loadPersistentPort() string {
+	// open current dir .PORT file
+	// if not exist create it
+	// if exist read it
+	// read text for number
+	// if is new port and save it
+	// at last return port
+
+	f, err := os.OpenFile(".PORT", os.O_RDONLY, 0666)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	b, err := ioutil.ReadAll(f)
+	if err != nil {
+		return ""
+	}
+
+	port := string(b)
+	_, err = strconv.Atoi(port)
+	if err != nil {
+		return ""
+	}
+
+	return port
+}
+
+// savePersistentPort
+func (s *Server) savePersistentPort(port string) error {
+	f, err := os.OpenFile(".PORT", os.O_RDWR|os.O_CREATE, 0666)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.WriteString(port)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 type serviceDesc struct {

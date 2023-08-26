@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/hysios/mx"
 	"github.com/hysios/mx/logger"
 	"github.com/hysios/mx/provisioning"
@@ -11,9 +12,13 @@ import (
 type GatewayOption struct {
 	Logger                   *zap.Logger
 	Middlewares              []mx.Middleware
+	MiddlewareMakes          []MiddlewareMaker
 	ClientUnaryInterceptors  []grpc.UnaryClientInterceptor
 	ClientStreamInterceptors []grpc.StreamClientInterceptor
+	MuxOptions               []runtime.ServeMuxOption
 }
+
+type MiddlewareMaker func(gateway *mx.Gateway) mx.Middleware
 
 func WithLogger(logger *zap.Logger) GatewayOptFunc {
 	return func(o *GatewayOption) error {
@@ -29,6 +34,13 @@ func WithMiddleware(mws ...mx.Middleware) GatewayOptFunc {
 	}
 }
 
+func WithMiddlewareMaker(mws ...MiddlewareMaker) GatewayOptFunc {
+	return func(o *GatewayOption) error {
+		o.MiddlewareMakes = mws
+		return nil
+	}
+}
+
 func WithClientUnaryInterceptor(interceptors ...grpc.UnaryClientInterceptor) GatewayOptFunc {
 	return func(o *GatewayOption) error {
 		o.ClientUnaryInterceptors = interceptors
@@ -39,6 +51,13 @@ func WithClientUnaryInterceptor(interceptors ...grpc.UnaryClientInterceptor) Gat
 func WithClientStreamInterceptor(interceptors ...grpc.StreamClientInterceptor) GatewayOptFunc {
 	return func(o *GatewayOption) error {
 		o.ClientStreamInterceptors = interceptors
+		return nil
+	}
+}
+
+func WithMuxOptions(opts ...runtime.ServeMuxOption) GatewayOptFunc {
+	return func(o *GatewayOption) error {
+		o.MuxOptions = opts
 		return nil
 	}
 }

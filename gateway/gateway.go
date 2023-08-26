@@ -1,8 +1,6 @@
 package gateway
 
 import (
-	"net/http"
-
 	"github.com/hysios/mx"
 	_ "github.com/hysios/mx/internal/gateway"
 	"github.com/hysios/mx/middleware"
@@ -59,6 +57,12 @@ func New(optfns ...GatewayOptFunc) *mx.Gateway {
 		gw.Use(opts.Middlewares...)
 	}
 
+	if opts.MiddlewareMakes != nil {
+		for _, fn := range opts.MiddlewareMakes {
+			gw.Use(fn(gw))
+		}
+	}
+
 	if opts.ClientUnaryInterceptors != nil {
 		gw.AddClientUnaryInterceptor(opts.ClientUnaryInterceptors...)
 	}
@@ -67,9 +71,13 @@ func New(optfns ...GatewayOptFunc) *mx.Gateway {
 		gw.AddClientStreamInterceptor(opts.ClientStreamInterceptors...)
 	}
 
-	gw.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte("hello world"))
-	})
+	if len(opts.MuxOptions) > 0 {
+		gw.WithMuxOption(opts.MuxOptions...)
+	}
+
+	// gw.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	// 	_, _ = w.Write([]byte("hello world"))
+	// })
 
 	return gw
 }

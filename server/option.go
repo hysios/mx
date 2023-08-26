@@ -18,6 +18,7 @@ type ServerOption struct {
 	ServiceDesc    *grpc.ServiceDesc
 	Logger         *zap.Logger
 	FileDescriptor protoreflect.FileDescriptor
+	PersistentPort bool
 }
 
 type ServerOptionFunc func(*ServerOption) error
@@ -46,6 +47,14 @@ func WithNamespace(ns string) ServerOptionFunc {
 func WithFileDescriptor(fd protoreflect.FileDescriptor) ServerOptionFunc {
 	return func(o *ServerOption) error {
 		o.FileDescriptor = fd
+		return nil
+	}
+}
+
+// 持久端口
+func WithPersistentPort() ServerOptionFunc {
+	return func(o *ServerOption) error {
+		o.PersistentPort = true
 		return nil
 	}
 }

@@ -195,14 +195,18 @@ func (d *descriptorBuilderService) ServiceName() string {
 }
 
 func (d *descriptorBuilderService) Register(ctx context.Context, gw *Gateway) error {
-	err := d.Build(ctx, gw.gwmux)
+	return d.RegisterServeMux(ctx, gw.gwmux)
+}
+
+func (d *descriptorBuilderService) RegisterServeMux(ctx context.Context, srvmux *runtime.ServeMux) error {
+	err := d.Build(ctx, srvmux)
 	if err != nil {
 		return err
 	}
 
 	for _, handler := range d.handlers {
 		d.logger.Info("registering http handler", zap.String("method", handler.Method), zap.String("pattern", handler.Pattern.String()))
-		gw.gwmux.Handle(handler.Method, handler.Pattern, handler.Handler)
+		srvmux.Handle(handler.Method, handler.Pattern, handler.Handler)
 	}
 
 	return nil
@@ -375,6 +379,7 @@ func (d *descriptorBuilderService) buildHttpHandler(mux *runtime.ServeMux, metho
 					return
 				}
 
+				// d.logger.Info("streaming mode", zap.Bool("is_streaming_client", method.IsStreamingClient()), zap.Bool("is_streaming_server", method.IsStreamingServer()))
 				runtime.ForwardResponseMessage(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 			},
 		}, nil
@@ -385,6 +390,8 @@ func (d *descriptorBuilderService) buildHttpHandler(mux *runtime.ServeMux, metho
 			Handler: func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 				ctx, cancel := context.WithCancel(req.Context())
 				defer cancel()
+				// d.logger.Info("streaming mode", zap.Bool("is_streaming_client", method.IsStreamingClient()), zap.Bool("is_streaming_server", method.IsStreamingServer()))
+
 				inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 				var err error
 				var annotatedContext context.Context

@@ -93,6 +93,10 @@ func (gw *Gateway) AddClientStreamInterceptor(interceptors ...grpc.StreamClientI
 	gw.clientStreamInterceptors = append(gw.clientStreamInterceptors, interceptors...)
 }
 
+func (gw *Gateway) WithMuxOption(options ...runtime.ServeMuxOption) {
+	gw.muxOptions = append(gw.muxOptions, options...)
+}
+
 func (gw *Gateway) RegisterService(service Service) error {
 	if _, ok := gw.services.Load(service.ServiceName()); ok {
 		return fmt.Errorf("service %s already registered", service.ServiceName())
