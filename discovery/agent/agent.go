@@ -2,7 +2,9 @@ package agent
 
 import (
 	"errors"
+	"fmt"
 	"net/url"
+	"os"
 	"strconv"
 
 	"github.com/hysios/mx/config"
@@ -10,6 +12,7 @@ import (
 	"github.com/hysios/mx/discovery"
 	"github.com/hysios/mx/logger"
 	"github.com/hysios/mx/server"
+	"github.com/hysios/x/utils"
 	"go.uber.org/multierr"
 	"go.uber.org/zap"
 )
@@ -44,9 +47,26 @@ var (
 )
 
 func defaultServiceDesc() discovery.ServiceDesc {
+	var (
+		redisAddr  = utils.Default(os.Getenv("REDIS_ADDR"), "127.0.0.1")
+		redisPort  = utils.Default(os.Getenv("REDIS_PORT"), "6379")
+		redisPass  = utils.Default(os.Getenv("REDIS_PASSWORD"), "")
+		redisDB    = utils.Default(os.Getenv("REDIS_DB"), "0")
+		configName = utils.Default(os.Getenv("CONFIG_NAME"), discovery.Namespace+".config")
+		uri        = url.URL{
+			Scheme: "redis",
+			User:   url.UserPassword("", redisPass),
+			Host:   fmt.Sprintf("%s:%s", redisAddr, redisPort),
+			Path:   configName,
+			RawQuery: url.Values{
+				"db": []string{redisDB},
+			}.Encode(),
+		}
+	)
+
 	return discovery.ServiceDesc{
 		ID:        "",
-		TargetURI: "redis://127.0.0.1:6379/" + discovery.Namespace + ".config",
+		TargetURI: uri.String(),
 		Type:      "mx.config",
 	}
 }

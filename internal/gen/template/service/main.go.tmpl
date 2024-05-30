@@ -4,13 +4,36 @@ import (
 {{ range .Imports }}
 {{ . -}}
 {{ end }}   
+	"go.uber.org/zap"
+	"github.com/hysios/mx/server"
+	_ "github.com/hysios/mx/discovery/provider/consul"
+)
+
+const Namespace = "{{ .Vars.Namespace }}"
+
+var (
+	addr = flag.String("addr", ":0", "server address")
 )
 
 func main() {
     // Services Register
-	srv := server.NewServiceFileDescriptor(&{{.Vars.ProtoPkgName}}.{{ .Vars.ServiceDesc }},
-			&{{ .PkgName }}.{{ .Vars.ServiceName }}{},
-			{{.Vars.ProtoPkgName}}.{{ .Vars.FileProto }},
-		)
-	srv.Start()
+	srv := server.New("{{ .Vars.ServiceName }}")
+
+	srv.RegisterService(
+		&{{.Vars.ProtoPkgName}}.{{ .Vars.ServiceDesc }},
+		&{{ .PkgName }}.{{ .Vars.ServiceName }}{},
+		server.WithFileDescriptor({{.Vars.ProtoPkgName}}.{{ .Vars.FileProto }}),
+	)
+	
+	if err := agent.RegisterServer(srv); err != nil {
+		logger.Logger.Error("register server", zap.Error(err))
+	}
+	
+	srv.ServeOn(*addr)
+}
+
+func init() {
+	discovery.SetNamespace(Namespace)
+	l, _ := zap.NewDevelopment()
+	logger.SetLogger(l)
 }

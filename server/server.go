@@ -9,26 +9,28 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_auth "github.com/grpc-ecosystem/go-grpc-middleware/auth"
 	grpc_zap "github.com/grpc-ecosystem/go-grpc-middleware/logging/zap"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	grpc_recovery "github.com/grpc-ecosystem/go-grpc-middleware/recovery"
 	grpc_ctxtags "github.com/grpc-ecosystem/go-grpc-middleware/tags"
 	grpc_opentracing "github.com/grpc-ecosystem/go-grpc-middleware/tracing/opentracing"
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
+	"github.com/pkg/errors"
 
 	"github.com/hysios/mx"
 	"github.com/hysios/mx/discovery"
-	"github.com/hysios/mx/errors"
 	"github.com/hysios/mx/logger"
 
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
@@ -42,6 +44,7 @@ type Server struct {
 	grpcserver   *grpc.Server
 	grpcOptions  []grpc.ServerOption
 	ln           net.Listener
+	l            sync.Mutex
 	logger       *zap.Logger
 
 	unaryInterceptors  []grpc.UnaryServerInterceptor
@@ -105,7 +108,7 @@ func (s *Server) initServer() {
 }
 
 func (s *Server) recoverFunc(p interface{}) (err error) {
-	return status.Errorf(codes.Unknown, "panic triggered: %s", errors.Wrap(p))
+	return errors.WithStack(fmt.Errorf("%v", p))
 }
 
 func (s *Server) authFunc(ctx context.Context) (context.Context, error) {
@@ -120,15 +123,49 @@ func (s *Server) buildGrpcOptions() []grpc.ServerOption {
 	options = append(options, grpc.UnaryInterceptor(s.buildUnaryServerInterceptor()))
 	options = append(options, grpc.StreamInterceptor(s.buildStreamServerInterceptor()))
 	options = append(options, s.grpcOptions...)
+
 	return options
 }
 
+type stackTracer interface {
+	StackTrace() errors.StackTrace
+}
+
+// logProdcuer
+func (s *Server) logProdcuer(ctx context.Context, msg string, level zapcore.Level, code codes.Code, _err error, duration zapcore.Field) {
+
+	if err, ok := _err.(stackTracer); ok {
+		var before bool
+		// print panic error stack
+
+		fmt.Printf("%s\n", err)
+		for _, f := range err.StackTrace() {
+			line := fmt.Sprintf("%+s:%d\n", f, f)
+			if !before {
+				if strings.HasPrefix(line, "runtime.gopanic\n") {
+					before = true
+				}
+				continue
+			} else {
+				fmt.Print(line)
+			}
+		}
+	} else {
+		ctxzap.Extract(ctx).Check(level, msg).Write(
+			zap.Error(_err),
+			zap.String("grpc.code", code.String()),
+			duration,
+		)
+	}
+}
+
 func (s *Server) buildUnaryServerInterceptor() grpc.UnaryServerInterceptor {
+
 	var interceptors = []grpc.UnaryServerInterceptor{
 		grpc_ctxtags.UnaryServerInterceptor(),
 		grpc_opentracing.UnaryServerInterceptor(),
 		grpc_prometheus.UnaryServerInterceptor,
-		grpc_zap.UnaryServerInterceptor(s.opts.Logger),
+		grpc_zap.UnaryServerInterceptor(s.opts.Logger, grpc_zap.WithMessageProducer(s.logProdcuer)),
 		grpc_auth.UnaryServerInterceptor(s.authFunc),
 		grpc_recovery.UnaryServerInterceptor(grpc_recovery.WithRecoveryHandler(s.recoverFunc)),
 	}
@@ -144,7 +181,7 @@ func (s *Server) buildStreamServerInterceptor() grpc.StreamServerInterceptor {
 		grpc_ctxtags.StreamServerInterceptor(),
 		grpc_opentracing.StreamServerInterceptor(),
 		grpc_prometheus.StreamServerInterceptor,
-		grpc_zap.StreamServerInterceptor(s.opts.Logger),
+		grpc_zap.StreamServerInterceptor(s.opts.Logger, grpc_zap.WithMessageProducer(s.logProdcuer)),
 		grpc_auth.StreamServerInterceptor(s.authFunc),
 		grpc_recovery.StreamServerInterceptor(grpc_recovery.WithRecoveryHandler(s.recoverFunc)),
 	}
@@ -183,7 +220,7 @@ func (s *Server) registerDesc(desc *grpc.ServiceDesc, impl any, optfns ...Server
 		Init() error
 	}); ok {
 		if err := init.Init(); err != nil {
-			panic(err)
+			panic(fmt.Errorf("service %s init error %w", desc.ServiceName, err))
 		}
 	}
 
@@ -192,7 +229,9 @@ func (s *Server) registerDesc(desc *grpc.ServiceDesc, impl any, optfns ...Server
 
 func (s *Server) Serve(lns net.Listener) error {
 	s.init()
+	s.l.Lock()
 	s.ln = lns
+	s.l.Unlock()
 
 	servech := make(chan net.Addr, 1)
 	go s.waitForStart(servech)
@@ -209,16 +248,7 @@ func (s *Server) Serve(lns net.Listener) error {
 }
 
 func (s *Server) ServeOn(addr string) error {
-	// h, port, err := net.SplitHostPort(addr)
-	// if err != nil {
-	// 	return err
-	// }
-	// if port == "0" && s.opts.PersistentPort {
-	// 	port = s.loadPersistentPort()
-	// }
-
 	ln, err := s.ListenWithPersistentPort(addr, s.opts.PersistentPort)
-	// ln, err := net.Listen("tcp", net.JoinHostPort(h, port))
 	if err != nil {
 		return err
 	}
@@ -263,6 +293,8 @@ func (s *Server) Addr() net.Addr {
 
 func (s *Server) AddrCh() chan net.Addr {
 	ch := make(chan net.Addr, 1)
+	s.l.Lock()
+	defer s.l.Unlock()
 	if s.ln == nil {
 		s.addListen(ch)
 	} else {

@@ -17,3 +17,7 @@ func LowerCamel(s string) string {
 func Lower(s string) string {
 	return strings.ToLower(s)
 }
+
+func SnakeCase(s string) string {
+	return strcase.ToSnake(s)
+}

@@ -4,13 +4,22 @@ import (
 	"github.com/hysios/mx"
 	"github.com/hysios/mx/logger"
 	"go.uber.org/zap"
+	_ "github.com/hysios/mx/discovery/provider/consul"
+	"github.com/hysios/mx/discovery"
+
 )
+
+const Namespace = "{{ .Vars.Namespace }}"
+
 
 func main() {
 	(&mx.Gateway{}).Serve(":8080")
 }
 
 func init() {
+	discovery.SetNamespace(Namespace)
+
 	cfg, _ := zap.NewDevelopment()
 	logger.SetLogger(cfg)
 }
+

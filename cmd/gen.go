@@ -1,6 +1,11 @@
 package main
 
 import (
+	"os"
+	"path"
+	"path/filepath"
+	"strings"
+
 	"github.com/hysios/mx/gen"
 	icli "github.com/hysios/mx/internal/cli"
 	"github.com/hysios/mx/internal/gen/template"
@@ -107,6 +112,10 @@ func genSubCmds() []*cli.Command {
 					Usage:    "gateway package name",
 					Required: true,
 				},
+				&cli.StringFlag{
+					Name:  "namespace",
+					Usage: "services namespace",
+				},
 				&cli.BoolFlag{
 					Name:  "verbose",
 					Usage: "verbose output",
@@ -122,6 +131,12 @@ func genSubCmds() []*cli.Command {
 			Action: func(c *cli.Context) error {
 				gateway := template.Gateway
 				gateway.AddVariable("FullPackage", c.String("pkg-name"))
+				ns := c.String("namespace")
+				if ns == "" {
+					p, _ := filepath.Abs(c.String("output"))
+					ns = getGatewayParent(p)
+				}
+				gateway.AddVariable("Namespace", ns)
 
 				LogError(gateway.Gen(&gen.Output{
 					Directory: c.String("output"),
@@ -184,4 +199,12 @@ func parseMethods(methods []string) []*icli.Method {
 	}
 
 	return meths
+}
+
+func getGatewayParent(output string) string {
+	if output == "" {
+		output, _ = os.Getwd()
+	}
+
+	return strings.TrimPrefix(path.Base(strings.TrimSuffix(output, "/gateway")), "/")
 }

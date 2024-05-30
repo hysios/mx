@@ -164,7 +164,8 @@ type descriptorBuilderService struct {
 	logger         *zap.Logger
 	connMap        map[string]*grpc.ClientConn
 	conns          Muxer
-	handlers       map[string]httpMethod
+	handlers       map[string][]httpMethod
+	annotateCtx    runtime.AnnotateContextOption
 	// handles map[string]
 }
 
@@ -182,7 +183,7 @@ func NewDescriptorBuilderService(name string, filedescriptor protoreflect.FileDe
 		name:           name,
 		filedescriptor: filedescriptor,
 		connMap:        make(map[string]*grpc.ClientConn),
-		handlers:       make(map[string]httpMethod),
+		handlers:       make(map[string][]httpMethod),
 	}
 }
 
@@ -204,9 +205,11 @@ func (d *descriptorBuilderService) RegisterServeMux(ctx context.Context, srvmux 
 		return err
 	}
 
-	for _, handler := range d.handlers {
-		d.logger.Info("registering http handler", zap.String("method", handler.Method), zap.String("pattern", handler.Pattern.String()))
-		srvmux.Handle(handler.Method, handler.Pattern, handler.Handler)
+	for _, handlers := range d.handlers {
+		for _, handler := range handlers {
+			d.logger.Info("registering http handler", zap.String("method", handler.Method), zap.String("pattern", handler.Pattern.String()))
+			srvmux.Handle(handler.Method, handler.Pattern, handler.Handler)
+		}
 	}
 
 	return nil
@@ -221,11 +224,12 @@ func (d *descriptorBuilderService) Build(ctx context.Context, mux *runtime.Serve
 			var (
 				method = service.Methods().Get(j)
 			)
-			methHandler, err := d.buildHttpHandler(mux, method)
+			methHandlers, err := d.buildHttpHandlers(mux, method)
 			if err != nil {
 				return err
 			}
-			d.handlers[string(method.FullName())] = methHandler
+
+			d.handlers[string(method.FullName())] = methHandlers
 		}
 	}
 
@@ -251,6 +255,23 @@ type methodOptions struct {
 
 // GoogleAPIHTTP is a wrapper for the Google API HTTP client.
 type GoogleAPIHTTP struct {
+	Get                string `json:"get"`
+	Post               string `json:"post"`
+	Put                string `json:"put"`
+	Patch              string `json:"patch"`
+	Delete             string `json:"delete"`
+	Body               string `json:"body"`
+	AdditionalBindings []struct {
+		Get    string `json:"get"`
+		Post   string `json:"post"`
+		Put    string `json:"put"`
+		Patch  string `json:"patch"`
+		Delete string `json:"delete"`
+		Body   string `json:"body"`
+	} `json:"additionalBindings"`
+}
+
+type HttpAPI struct {
 	Get    string `json:"get"`
 	Post   string `json:"post"`
 	Put    string `json:"put"`
@@ -302,6 +323,42 @@ func (apiHttp *GoogleAPIHTTP) Path() string {
 	}
 }
 
+// Method
+func (apiHttp *HttpAPI) Method() string {
+	switch {
+	case apiHttp.Get != "":
+		return http.MethodGet
+	case apiHttp.Post != "":
+		return http.MethodPost
+	case apiHttp.Put != "":
+		return http.MethodPut
+	case apiHttp.Patch != "":
+		return http.MethodPatch
+	case apiHttp.Delete != "":
+		return http.MethodDelete
+	default:
+		return http.MethodGet
+	}
+}
+
+// Path returns the path of the request.
+func (apiHttp *HttpAPI) Path() string {
+	switch {
+	case apiHttp.Get != "":
+		return apiHttp.Get
+	case apiHttp.Post != "":
+		return apiHttp.Post
+	case apiHttp.Put != "":
+		return apiHttp.Put
+	case apiHttp.Patch != "":
+		return apiHttp.Patch
+	case apiHttp.Delete != "":
+		return apiHttp.Delete
+	default:
+		return ""
+	}
+}
+
 // unmarshalOptions unmarshals the options proto message into a methodOptions
 // struct.
 func (d *descriptorBuilderService) unmarshalOptions(options protoreflect.ProtoMessage) (*methodOptions, error) {
@@ -320,21 +377,59 @@ func (d *descriptorBuilderService) unmarshalOptions(options protoreflect.ProtoMe
 	return &opts, nil
 }
 
-func (d *descriptorBuilderService) buildHttpHandler(mux *runtime.ServeMux, method protoreflect.MethodDescriptor) (httpMethod, error) {
-	// var methodName = string(method.FullName())
+func (d *descriptorBuilderService) buildHttpHandlers(mux *runtime.ServeMux, method protoreflect.MethodDescriptor) (httpMethods []httpMethod, err error) {
 	var (
 		parent      = method.Parent()
 		serviceName = string(parent.FullName())
-		methodName  = string(method.Name())
-		fullname    = string("/" + serviceName + "/" + methodName)
 	)
 
 	options, err := d.unmarshalOptions(method.Options())
 	if err != nil {
-		return httpMethod{}, err
+		return nil, err
 	}
 
-	compile, err := httprule.Parse(options.GoogleAPIHTTP.Path())
+	var hapi = &HttpAPI{
+		Get:    options.GoogleAPIHTTP.Get,
+		Post:   options.GoogleAPIHTTP.Post,
+		Put:    options.GoogleAPIHTTP.Put,
+		Patch:  options.GoogleAPIHTTP.Patch,
+		Delete: options.GoogleAPIHTTP.Delete,
+		Body:   options.GoogleAPIHTTP.Body,
+	}
+
+	hmethod, err := d.build1methodHandler(mux, serviceName, method, hapi)
+	if err != nil {
+		return nil, err
+	}
+	httpMethods = append(httpMethods, hmethod)
+
+	for _, binding := range options.GoogleAPIHTTP.AdditionalBindings {
+		hapi = &HttpAPI{
+			Get:    binding.Get,
+			Post:   binding.Post,
+			Put:    binding.Put,
+			Patch:  binding.Patch,
+			Delete: binding.Delete,
+			Body:   binding.Body,
+		}
+
+		hmethod, err := d.build1methodHandler(mux, serviceName, method, hapi)
+		if err != nil {
+			return nil, err
+		}
+		httpMethods = append(httpMethods, hmethod)
+	}
+
+	return httpMethods, nil
+}
+
+// build1methodHandler builds a single method handler for the given method.
+func (d *descriptorBuilderService) build1methodHandler(mux *runtime.ServeMux, serviceName string, method protoreflect.MethodDescriptor, hapi *HttpAPI) (httpMethod, error) {
+	var (
+		methodName = string(method.Name())
+		fullname   = string("/" + serviceName + "/" + methodName)
+	)
+	compile, err := httprule.Parse(hapi.Path())
 	if err != nil {
 		return httpMethod{}, err
 	}
@@ -346,8 +441,8 @@ func (d *descriptorBuilderService) buildHttpHandler(mux *runtime.ServeMux, metho
 		return httpMethod{}, err
 	}
 
-	d.logger.Info("method options", zap.String("method", fullname), zap.Any("options", options))
-	switch options.GoogleAPIHTTP.Method() {
+	d.logger.Info("method options", zap.String("method", fullname), zap.Any("options", hapi))
+	switch hapi.Method() {
 	case http.MethodGet:
 		return httpMethod{
 			Method:  "GET",
@@ -358,7 +453,7 @@ func (d *descriptorBuilderService) buildHttpHandler(mux *runtime.ServeMux, metho
 				inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 				var err error
 				var annotatedContext context.Context
-				annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, fullname, runtime.WithHTTPPathPattern(options.GoogleAPIHTTP.Path()))
+				annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, fullname, runtime.WithHTTPPathPattern(hapi.Path()))
 				if err != nil {
 					runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 					return
@@ -388,14 +483,18 @@ func (d *descriptorBuilderService) buildHttpHandler(mux *runtime.ServeMux, metho
 			Method:  "POST",
 			Pattern: pattern,
 			Handler: func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-				ctx, cancel := context.WithCancel(req.Context())
+				var (
+					err              error
+					annotatedContext context.Context
+
+					ctx, cancel = context.WithCancel(req.Context())
+				)
 				defer cancel()
 				// d.logger.Info("streaming mode", zap.Bool("is_streaming_client", method.IsStreamingClient()), zap.Bool("is_streaming_server", method.IsStreamingServer()))
 
 				inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-				var err error
-				var annotatedContext context.Context
-				annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, fullname, runtime.WithHTTPPathPattern(options.GoogleAPIHTTP.Path()))
+				// Create a new filter
+				annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, fullname, runtime.WithHTTPPathPattern(hapi.Path()))
 				if err != nil {
 					runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 					return
@@ -404,12 +503,7 @@ func (d *descriptorBuilderService) buildHttpHandler(mux *runtime.ServeMux, metho
 				input := dynamicpb.NewMessage(method.Input())
 				output := dynamicpb.NewMessage(method.Output())
 
-				// if err := d.applyParams(input, method.Input(), tmpl, pathParams); err != nil {
-				// 	runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
-				// 	return
-				// }
-
-				resp, md, err := d.request_PostMethod2(annotatedContext, inboundMarshaler, fullname, method, tmpl, input, output, req, pathParams)
+				resp, md, err := d.request_PostMethod(annotatedContext, inboundMarshaler, fullname, method, tmpl, input, output, req, pathParams)
 				annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 				if err != nil {
 					runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
@@ -429,7 +523,7 @@ func (d *descriptorBuilderService) buildHttpHandler(mux *runtime.ServeMux, metho
 				inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 				var err error
 				var annotatedContext context.Context
-				annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, fullname, runtime.WithHTTPPathPattern(options.GoogleAPIHTTP.Path()))
+				annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, fullname, runtime.WithHTTPPathPattern(hapi.Path()))
 				if err != nil {
 					runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 					return
@@ -443,7 +537,7 @@ func (d *descriptorBuilderService) buildHttpHandler(mux *runtime.ServeMux, metho
 				// 	return
 				// }
 
-				resp, md, err := d.request_PostMethod2(annotatedContext, inboundMarshaler, fullname, method, tmpl, input, output, req, pathParams)
+				resp, md, err := d.request_PostMethod(annotatedContext, inboundMarshaler, fullname, method, tmpl, input, output, req, pathParams)
 				// resp, md, err := d.request_PostMethod(annotatedContext, inboundMarshaler, fullname, input, output, req, pathParams)
 				annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 				if err != nil {
@@ -464,7 +558,7 @@ func (d *descriptorBuilderService) buildHttpHandler(mux *runtime.ServeMux, metho
 				inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 				var err error
 				var annotatedContext context.Context
-				annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, fullname, runtime.WithHTTPPathPattern(options.GoogleAPIHTTP.Path()))
+				annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, fullname, runtime.WithHTTPPathPattern(hapi.Path()))
 				if err != nil {
 					runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 					return
@@ -477,7 +571,7 @@ func (d *descriptorBuilderService) buildHttpHandler(mux *runtime.ServeMux, metho
 				// 	runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 				// 	return
 				// }
-				resp, md, err := d.request_PostMethod2(annotatedContext, inboundMarshaler, fullname, method, tmpl, input, output, req, pathParams)
+				resp, md, err := d.request_PostMethod(annotatedContext, inboundMarshaler, fullname, method, tmpl, input, output, req, pathParams)
 				// resp, md, err := d.request_PostMethod(annotatedContext, inboundMarshaler, fullname, input, output, req, pathParams)
 				annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 				if err != nil {
@@ -498,7 +592,7 @@ func (d *descriptorBuilderService) buildHttpHandler(mux *runtime.ServeMux, metho
 				inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 				var err error
 				var annotatedContext context.Context
-				annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, fullname, runtime.WithHTTPPathPattern(options.GoogleAPIHTTP.Path()))
+				annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, fullname, runtime.WithHTTPPathPattern(hapi.Path()))
 				if err != nil {
 					runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 					return
@@ -512,7 +606,7 @@ func (d *descriptorBuilderService) buildHttpHandler(mux *runtime.ServeMux, metho
 				// 	return
 				// }
 
-				resp, md, err := d.request_PostMethod2(annotatedContext, inboundMarshaler, fullname, method, tmpl, input, output, req, pathParams)
+				resp, md, err := d.request_PostMethod(annotatedContext, inboundMarshaler, fullname, method, tmpl, input, output, req, pathParams)
 				// resp, md, err := d.request_PostMethod(annotatedContext, inboundMarshaler, fullname, input, output, req, pathParams)
 				annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 				if err != nil {
@@ -546,23 +640,7 @@ func (d *descriptorBuilderService) request_GetMethod(ctx context.Context, marsha
 	return output, metadata, err
 }
 
-func (d *descriptorBuilderService) request_PostMethod(ctx context.Context, marshaler runtime.Marshaler, method string, input, output *dynamicpb.Message, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var metadata runtime.ServerMetadata
-
-	newReader, berr := utilities.IOReaderFactory(req.Body)
-	if berr != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
-	}
-
-	if err := marshaler.NewDecoder(newReader()).Decode(input); err != nil && err != io.EOF {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
-	}
-
-	err := d.conns.Invoke(ctx, method, input, output, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
-	return output, metadata, err
-}
-
-func (d *descriptorBuilderService) request_PostMethod2(ctx context.Context,
+func (d *descriptorBuilderService) request_PostMethod(ctx context.Context,
 	marshaler runtime.Marshaler,
 	methodName string,
 	method protoreflect.MethodDescriptor,
@@ -581,6 +659,12 @@ func (d *descriptorBuilderService) request_PostMethod2(ctx context.Context,
 	}
 
 	if err := d.applyParams(input, method.Input(), tmpl, pathParams); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+
+	filters := &utilities.DoubleArray{Encoding: map[string]int{}, Base: []int(nil), Check: []int(nil)}
+
+	if err := runtime.PopulateQueryParameters(input, req.URL.Query(), filters); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 

@@ -49,3 +49,9 @@ func WithInsecure(on bool) MakeOptionFunc {
 		o.Insecure = on
 	}
 }
+
+func WithUserAgent(userAgent string) MakeOptionFunc {
+	return func(o *MakeOption) {
+		o.dialOptions = append(o.dialOptions, grpc.WithUserAgent(userAgent))
+	}
+}

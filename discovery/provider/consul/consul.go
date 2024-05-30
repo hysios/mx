@@ -180,7 +180,7 @@ func (c *consulDiscovery) Run() error {
 					desc.FileDescriptorKey = services[id].Meta["file_descriptor_key"]
 					filedescriptor, err := c.getFileDescriptor(desc.FileDescriptorKey)
 					if err != nil {
-						logger.Logger.Error("getFileDescriptor", zap.Error(err))
+						logger.Logger.Error("getFileDescriptor", zap.String("key", desc.FileDescriptorKey), zap.Error(err))
 						continue
 					}
 					desc.FileDescriptor = filedescriptor

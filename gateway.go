@@ -76,9 +76,13 @@ func (gw *Gateway) Use(middlewares ...Middleware) {
 	gw.middlewares = append(gw.middlewares, middlewares...)
 }
 
-func (gw *Gateway) HandleFunc(path string, handler func(http.ResponseWriter, *http.Request)) {
+func (gw *Gateway) HandleFunc(path string, handler http.Handler) {
 	// gw.routers = append(gw.routers, map[string]http.Handler{path: http.HandlerFunc(handler)})
-	gw.routers = append(gw.routers, map[string]routeHandler{path: routeHandler{Path: path, Method: route_Route, Handler: http.HandlerFunc(handler)}})
+	gw.routers = append(gw.routers, map[string]routeHandler{path: routeHandler{Path: path, Method: route_Route, Handler: handler}})
+}
+
+func (gw *Gateway) HandlePrefix(path string, handler http.Handler) {
+	gw.routers = append(gw.routers, map[string]routeHandler{path: routeHandler{Path: path, Method: route_Prefix, Handler: handler}})
 }
 
 func (gw *Gateway) NotFoundFunc(handler http.Handler) {
@@ -116,6 +120,7 @@ func (gw *Gateway) GetService(name string) (Service, bool) {
 
 func (gw *Gateway) setup() error {
 	gw.init()
+
 	gw.gwmux = runtime.NewServeMux(
 		gw.buildMuxOptions()...,
 	)
@@ -123,7 +128,6 @@ func (gw *Gateway) setup() error {
 	gw.discovery.Discovery(gw.discoveryService)
 
 	go gw.discovery.Start(gw.ctx)
-	provisioning.Init(gw)
 
 	gw.muxpool = NewMuxPool(gw.createMuxs(2)...)
 
@@ -174,8 +178,6 @@ func (gw *Gateway) createServer(gwmux *runtime.ServeMux) *http.Server {
 	r.PathPrefix(gw.ApiPrefix).Handler(gw.gwmux)
 
 	httpServer := &http.Server{
-		// Addr:    gw.prevAddr,
-		// Handler: gw.gwmux,
 		Handler: r,
 	}
 
@@ -227,6 +229,15 @@ func (gw *Gateway) addMetrics() {
 	gw.addRouter("/metrics", promhttp.Handler())
 }
 
+// dial grpc server
+func (gw *Gateway) dial(addr string) (*grpc.ClientConn, error) {
+	return grpc.Dial(addr,
+		grpc.WithInsecure(),
+		grpc.WithBlock(),
+		grpc.WithChainUnaryInterceptor(gw.clientUnaryInterceptors...),
+	)
+}
+
 // addPprof
 func (gw *Gateway) addPprof() {
 	gw.addPrefixRoute("/debug/pprof/", http.HandlerFunc(pprof.Index))
@@ -265,6 +276,7 @@ func (gw *Gateway) init() {
 	if gw.discovery == nil {
 		gw.discovery = discovery.Default
 	}
+	provisioning.Init(gw)
 
 	gw.run.do(Init)
 }
@@ -275,7 +287,8 @@ func (gw *Gateway) discoveryService(desc discovery.RegistryMessage) {
 		gw.Logger.Debug("service join", zap.String("service", desc.Desc.Service), zap.String("id", desc.Desc.ID), zap.String("target", desc.Desc.TargetURI))
 		if desc.Desc.FileDescriptor == nil { // no file descriptor
 			gw.getDynamicService(desc.Desc.Service, func(dynservice DynamicService) {
-				conn, err := grpc.Dial(desc.Desc.TargetURI, grpc.WithInsecure(), grpc.WithBlock())
+				// conn, err := grpc.Dial(desc.Desc.TargetURI, grpc.WithInsecure(), grpc.WithBlock())
+				conn, err := gw.dial(desc.Desc.TargetURI)
 				if err != nil {
 					gw.Logger.Warn("dial failed", zap.String("service", desc.Desc.Service), zap.String("id", desc.Desc.ID), zap.String("target", desc.Desc.TargetURI), zap.Error(err))
 					return
@@ -288,7 +301,8 @@ func (gw *Gateway) discoveryService(desc discovery.RegistryMessage) {
 		} else {
 			if _, ok := gw.GetService(desc.Desc.Service); ok {
 				gw.getDynamicService(desc.Desc.Service, func(dynservice DynamicService) {
-					conn, err := grpc.Dial(desc.Desc.TargetURI, grpc.WithInsecure(), grpc.WithBlock())
+					// conn, err := grpc.Dial(desc.Desc.TargetURI, grpc.WithInsecure(), grpc.WithBlock())
+					conn, err := gw.dial(desc.Desc.TargetURI)
 					if err != nil {
 						gw.Logger.Warn("dial failed", zap.String("service", desc.Desc.Service), zap.String("id", desc.Desc.ID), zap.String("target", desc.Desc.TargetURI), zap.Error(err))
 						return
@@ -308,7 +322,8 @@ func (gw *Gateway) discoveryService(desc discovery.RegistryMessage) {
 				}
 
 				gw.getDynamicService(desc.Desc.Service, func(dynservice DynamicService) {
-					conn, err := grpc.Dial(desc.Desc.TargetURI, grpc.WithInsecure(), grpc.WithBlock())
+					// conn, err := grpc.Dial(desc.Desc.TargetURI, grpc.WithInsecure(), grpc.WithBlock())
+					conn, err := gw.dial(desc.Desc.TargetURI)
 					if err != nil {
 						gw.Logger.Warn("dial failed", zap.String("service", desc.Desc.Service), zap.String("id", desc.Desc.ID), zap.String("target", desc.Desc.TargetURI), zap.Error(err))
 						return

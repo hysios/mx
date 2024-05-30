@@ -3,7 +3,7 @@ package logger
 import "go.uber.org/zap"
 
 var (
-	Logger = zap.NewNop()
+	Logger = zap.L()
 	Sugar  = Logger.Sugar()
 	Cli, _ = zap.NewDevelopment(zap.IncreaseLevel(zap.InfoLevel))
 )
@@ -15,4 +15,8 @@ func SetLogger(l *zap.Logger) {
 
 func SetCliLogger(l *zap.Logger) {
 	Cli = l
+}
+
+func GetLogger() *zap.Logger {
+	return Logger
 }
