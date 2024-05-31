@@ -53,6 +53,7 @@ func New(optfns ...GatewayOptFunc) *mx.Gateway {
 
 	gw.CustomDebugPath = opts.CustomDebugPath
 	gw.CustomMetricsPath = opts.CustomMetricsPath
+	gw.CustomMetricsHander = opts.CustomMetricsHander
 
 	gw.Use(middleware.Defaults...)
 

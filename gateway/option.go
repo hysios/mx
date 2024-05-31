@@ -1,6 +1,8 @@
 package gateway
 
 import (
+	"net/http"
+
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/hysios/mx"
 	"github.com/hysios/mx/logger"
@@ -18,6 +20,7 @@ type GatewayOption struct {
 	MuxOptions               []runtime.ServeMuxOption
 	CustomMetricsPath        string
 	CustomDebugPath          string
+	CustomMetricsHander      http.Handler
 }
 
 type MiddlewareMaker func(gateway *mx.Gateway) mx.Middleware
@@ -64,7 +67,7 @@ func WithMuxOptions(opts ...runtime.ServeMuxOption) GatewayOptFunc {
 	}
 }
 
-// WithMetricsPath sets the path for the metrics handler.
+// WithCustomMetricsPath sets the path for the metrics handler.
 func WithCustomMetricsPath(path string) GatewayOptFunc {
 	return func(o *GatewayOption) error {
 		o.CustomMetricsPath = path
@@ -72,7 +75,16 @@ func WithCustomMetricsPath(path string) GatewayOptFunc {
 	}
 }
 
-// WithDebugPath sets the path for the debug handler.
+// WithCustomMetricsHandler sets the handler for the metrics handler.
+func WithCustomMetricsHandler(path string, handler http.Handler) GatewayOptFunc {
+	return func(o *GatewayOption) error {
+		o.CustomMetricsPath = path
+		o.CustomMetricsHander = handler
+		return nil
+	}
+}
+
+// WithCustomDebugPath sets the path for the debug handler.
 func WithCustomDebugPath(path string) GatewayOptFunc {
 	return func(o *GatewayOption) error {
 		o.CustomDebugPath = path

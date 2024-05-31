@@ -19,11 +19,11 @@ import (
 
 // Gateway grpc gateway
 type Gateway struct {
-	ApiPrefix         string
-	Logger            *zap.Logger // logger
-	CustomMetricsPath string
-	CustomDebugPath   string
-
+	ApiPrefix           string
+	Logger              *zap.Logger // logger
+	CustomMetricsPath   string
+	CustomDebugPath     string
+	CustomMetricsHander http.Handler
 	// middleware chain
 	middlewares              []Middleware                   // middleware chain
 	muxOptions               []runtime.ServeMuxOption       // grpc-gateway mux options
@@ -233,7 +233,11 @@ func (gw *Gateway) addMetrics() {
 		path = gw.CustomMetricsPath
 	}
 
-	gw.addRouter(path, promhttp.Handler())
+	if gw.CustomMetricsHander != nil {
+		gw.addRouter(path, gw.CustomMetricsHander)
+	} else {
+		gw.addRouter(path, promhttp.Handler())
+	}
 }
 
 // dial grpc server
