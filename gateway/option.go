@@ -16,6 +16,8 @@ type GatewayOption struct {
 	ClientUnaryInterceptors  []grpc.UnaryClientInterceptor
 	ClientStreamInterceptors []grpc.StreamClientInterceptor
 	MuxOptions               []runtime.ServeMuxOption
+	CustomMetricsPath        string
+	CustomDebugPath          string
 }
 
 type MiddlewareMaker func(gateway *mx.Gateway) mx.Middleware
@@ -58,6 +60,22 @@ func WithClientStreamInterceptor(interceptors ...grpc.StreamClientInterceptor) G
 func WithMuxOptions(opts ...runtime.ServeMuxOption) GatewayOptFunc {
 	return func(o *GatewayOption) error {
 		o.MuxOptions = opts
+		return nil
+	}
+}
+
+// WithMetricsPath sets the path for the metrics handler.
+func WithCustomMetricsPath(path string) GatewayOptFunc {
+	return func(o *GatewayOption) error {
+		o.CustomMetricsPath = path
+		return nil
+	}
+}
+
+// WithDebugPath sets the path for the debug handler.
+func WithCustomDebugPath(path string) GatewayOptFunc {
+	return func(o *GatewayOption) error {
+		o.CustomDebugPath = path
 		return nil
 	}
 }

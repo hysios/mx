@@ -51,6 +51,9 @@ func New(optfns ...GatewayOptFunc) *mx.Gateway {
 		gw.Logger = opts.Logger
 	}
 
+	gw.CustomDebugPath = opts.CustomDebugPath
+	gw.CustomMetricsPath = opts.CustomMetricsPath
+
 	gw.Use(middleware.Defaults...)
 
 	if opts.Middlewares != nil {

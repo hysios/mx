@@ -19,8 +19,10 @@ import (
 
 // Gateway grpc gateway
 type Gateway struct {
-	ApiPrefix string
-	Logger    *zap.Logger // logger
+	ApiPrefix         string
+	Logger            *zap.Logger // logger
+	CustomMetricsPath string
+	CustomDebugPath   string
 
 	// middleware chain
 	middlewares              []Middleware                   // middleware chain
@@ -226,7 +228,12 @@ func (gw *Gateway) addPrefixRoute(path string, handler http.Handler) {
 }
 
 func (gw *Gateway) addMetrics() {
-	gw.addRouter("/metrics", promhttp.Handler())
+	var path = "/metrics"
+	if gw.CustomMetricsPath != "" {
+		path = gw.CustomMetricsPath
+	}
+
+	gw.addRouter(path, promhttp.Handler())
 }
 
 // dial grpc server
@@ -240,11 +247,15 @@ func (gw *Gateway) dial(addr string) (*grpc.ClientConn, error) {
 
 // addPprof
 func (gw *Gateway) addPprof() {
-	gw.addPrefixRoute("/debug/pprof/", http.HandlerFunc(pprof.Index))
-	gw.addPrefixRoute("/debug/pprof/cmdline", http.HandlerFunc(pprof.Cmdline))
-	gw.addPrefixRoute("/debug/pprof/profile", http.HandlerFunc(pprof.Profile))
-	gw.addPrefixRoute("/debug/pprof/symbol", http.HandlerFunc(pprof.Symbol))
-	gw.addPrefixRoute("/debug/pprof/trace", http.HandlerFunc(pprof.Trace))
+	var prefix = "/debug"
+	if gw.CustomDebugPath != "" {
+		prefix = gw.CustomDebugPath
+	}
+	gw.addPrefixRoute(prefix+"/pprof/", http.HandlerFunc(pprof.Index))
+	gw.addPrefixRoute(prefix+"/pprof/cmdline", http.HandlerFunc(pprof.Cmdline))
+	gw.addPrefixRoute(prefix+"/pprof/profile", http.HandlerFunc(pprof.Profile))
+	gw.addPrefixRoute(prefix+"/pprof/symbol", http.HandlerFunc(pprof.Symbol))
+	gw.addPrefixRoute(prefix+"/pprof/trace", http.HandlerFunc(pprof.Trace))
 }
 
 func (gw *Gateway) initGWServer() {
