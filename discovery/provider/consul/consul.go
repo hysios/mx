@@ -3,6 +3,7 @@ package consul
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/golang/protobuf/proto"
@@ -35,6 +36,7 @@ type consulDiscovery struct {
 	msgch       chan discovery.RegistryMessage
 	shadow      map[string]discovery.ServiceDesc
 	resolverURI resolverURI
+	l           sync.Mutex
 }
 
 type resolver struct {
@@ -58,6 +60,8 @@ type resolverURI func(*api.AgentService) string
 
 // init
 func (c *consulDiscovery) init() error {
+	c.l.Lock()
+	defer c.l.Unlock()
 
 	if c.config == nil {
 		c.config = api.DefaultConfig()
