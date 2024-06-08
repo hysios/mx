@@ -26,6 +26,7 @@ type Gateway struct {
 	CustomMetricsHander http.Handler
 	// middleware chain
 	middlewares              []Middleware                   // middleware chain
+	afterMiddlewaares        []Middleware                   // middleware chain
 	muxOptions               []runtime.ServeMuxOption       // grpc-gateway mux options
 	gwmux                    *runtime.ServeMux              // grpc-gateway mux instance
 	muxpool                  *MuxPool                       // mux pool

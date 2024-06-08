@@ -111,7 +111,18 @@ func (l *localService) ServiceName() string {
 }
 
 func (l *localService) Register(ctx context.Context, gw *Gateway) error {
-	return l.handler.Call(ctx, gw.gwmux, l.serviceImpl)
+	if err := l.handler.Call(ctx, gw.gwmux, l.serviceImpl); err != nil {
+		return err
+	}
+
+	return l.init()
+}
+
+func (l *localService) init() error {
+	if init, ok := l.serviceImpl.(interface{ Init() error }); ok {
+		return init.Init()
+	}
+	return nil
 }
 
 type dynamicService struct {
