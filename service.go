@@ -254,9 +254,13 @@ func (d *descriptorBuilderService) AddConn(serviceId string, conn *grpc.ClientCo
 }
 
 func (d *descriptorBuilderService) RemoveConn(serviceId string) error {
+	conn, ok := d.connMap[serviceId]
+	if !ok {
+		return nil
+	}
 	delete(d.connMap, serviceId)
 	d.conns.Remove(serviceId)
-	return nil
+	return conn.Close()
 }
 
 type methodOptions struct {

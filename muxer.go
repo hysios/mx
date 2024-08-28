@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math/rand"
+	"slices"
 	"sync"
 	"sync/atomic"
 
@@ -55,14 +56,16 @@ func (m *Muxer) Remove(id string) grpc.ClientConnInterface {
 	m.connLock.Lock()
 	defer m.connLock.Unlock()
 
-	for i, c := range m.conns {
+	var conn grpc.ClientConnInterface
+	m.conns = slices.DeleteFunc(m.conns, func(c abstractConn) bool {
 		if c.ServiceID == id {
-			m.conns = append(m.conns[:i], m.conns[i+1:]...)
-			return c.Conn
+			conn = c.Conn
+			return true
 		}
-	}
+		return false
+	})
 
-	return nil
+	return conn
 }
 
 // Invoke performs a unary RPC and returns after the response is received
