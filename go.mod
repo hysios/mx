@@ -10,7 +10,6 @@ require (
 	github.com/go-redis/redis/v8 v8.11.5
 	github.com/go-redis/redismock/v8 v8.11.5
 	github.com/golang/glog v1.2.1
-	github.com/golang/protobuf v1.5.3
 	github.com/gorilla/handlers v1.5.1
 	github.com/gorilla/mux v1.8.0
 	github.com/gorilla/sessions v1.2.2
@@ -37,8 +36,8 @@ require (
 	go.uber.org/multierr v1.10.0
 	go.uber.org/zap v1.25.0
 	golang.org/x/net v0.26.0
-	google.golang.org/genproto/googleapis/api v0.0.0-20230711160842-782d3b101e98
-	google.golang.org/grpc v1.58.0
+	google.golang.org/genproto/googleapis/api v0.0.0-20240604185151-ef581f913117
+	google.golang.org/grpc v1.66.0
 	google.golang.org/protobuf v1.34.1
 )
 
@@ -54,6 +53,7 @@ require (
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
 	github.com/golang-jwt/jwt v3.2.1+incompatible // indirect
+	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/securecookie v1.1.2 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
@@ -81,11 +81,9 @@ require (
 	github.com/prometheus/procfs v0.8.0 // indirect
 	github.com/rogpeppe/go-internal v1.12.0 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
-	github.com/sagikazarmark/locafero v0.3.0 // indirect
-	github.com/sagikazarmark/slog-shim v0.1.0 // indirect
-	github.com/sourcegraph/conc v0.3.0 // indirect
 	github.com/spf13/afero v1.10.0 // indirect
 	github.com/spf13/cast v1.6.0 // indirect
+	github.com/spf13/jwalterweatherman v1.1.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/tidwall/btree v0.0.0-20191029221954-400434d76274 // indirect
