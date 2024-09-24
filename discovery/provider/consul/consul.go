@@ -99,7 +99,7 @@ func (c *consulDiscovery) init() error {
 // namespace
 func (c *consulDiscovery) namespace() string {
 	if c.Namespace == "" {
-		return discovery.Namespace
+		c.Namespace = discovery.Namespace
 	}
 
 	return c.Namespace
