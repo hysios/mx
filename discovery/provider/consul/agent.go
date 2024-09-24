@@ -121,7 +121,7 @@ func (c *consulAgent) Register(desc discovery.ServiceDesc) error {
 
 		meta["file_descriptor_key"] = desc.FileDescriptorKey
 		if _, err := c.cli.KV().Put(&api.KVPair{
-			Key:   fmt.Sprintf("mx/registry/protofile/%s", desc.FileDescriptorKey),
+			Key:   fmt.Sprintf("mx/registry/protofile/%s/%s", c.Namespace, desc.FileDescriptorKey),
 			Value: b,
 		}, nil); err != nil {
 			return err
@@ -186,7 +186,7 @@ func (c *consulAgent) getFileDescriptor(key string) (desc protoreflect.FileDescr
 		pair *api.KVPair
 	)
 
-	pair, _, err = c.cli.KV().Get(fmt.Sprintf("mx/registry/protofile/%s", key), nil)
+	pair, _, err = c.cli.KV().Get(fmt.Sprintf("mx/registry/protofile/%s/%s", c.Namespace, key), nil)
 	if err != nil {
 		return
 	}

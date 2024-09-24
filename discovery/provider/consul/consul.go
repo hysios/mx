@@ -110,7 +110,7 @@ func (c *consulDiscovery) getFileDescriptor(key string) (desc protoreflect.FileD
 		pair *api.KVPair
 	)
 
-	pair, _, err = c.cli.KV().Get(fmt.Sprintf("mx/registry/protofile/%s", key), nil)
+	pair, _, err = c.cli.KV().Get(fmt.Sprintf("mx/registry/protofile/%s/%s", c.Namespace, key), nil)
 	if err != nil {
 		return
 	}
