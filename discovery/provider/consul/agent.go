@@ -81,7 +81,7 @@ type consulAgent struct {
 
 func (c *consulAgent) namespace() string {
 	if c.Namespace == "" {
-		return discovery.Namespace
+		c.Namespace = discovery.Namespace
 	}
 
 	return c.Namespace
