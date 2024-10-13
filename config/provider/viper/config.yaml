@@ -1,0 +1,7 @@
+
+foo: bar
+nested:
+  key: value
+array:
+  - item1
+  - item2
