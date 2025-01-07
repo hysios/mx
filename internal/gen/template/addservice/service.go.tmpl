@@ -1,0 +1,14 @@
+package {{.PkgName}}
+
+import (
+	"context"
+{{ range .Imports }}
+{{ . }}
+{{ end }}    
+)
+
+{{ .ServiceStruct }}
+
+{{ $length := len .Methods }} {{ if gt $length 0 }}
+{{ .ServiceImplements }}
+{{ end }}

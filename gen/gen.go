@@ -3,13 +3,18 @@ package gen
 import (
 	"bytes"
 	"embed"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"text/template"
 
+	"github.com/hysios/mx"
+	"github.com/hysios/mx/internal/cli"
 	"github.com/hysios/mx/logger"
+	"github.com/hysios/mx/utils"
 	"go.uber.org/multierr"
 	"go.uber.org/zap"
 )
@@ -84,6 +89,10 @@ func (fs *FileSystem) Gen(output *Output) error {
 			ctx, err := fs.buildContext(name, file)
 			if err != nil {
 				return err
+			}
+
+			if ctx == nil {
+				return nil
 			}
 
 			ctx.Scan()
@@ -211,6 +220,7 @@ type IterFile struct {
 	FilePattern string
 	Tmpl        *template.Template
 	Rd          io.Reader
+	Scope       string
 }
 
 // iterate iterates over the file system.
@@ -385,6 +395,9 @@ func (fs *FileSystem) buildContext(name string, file *IterFile) (ctx Context, er
 		if ctor, ok := fs.fileContexts[file.FilePattern]; ok {
 			ctx, err = ctor(ctx)
 			if err != nil {
+				if errors.Is(err, mx.ErrSkipFile) {
+					return nil, nil
+				}
 				return nil, err
 			}
 		}
@@ -393,6 +406,9 @@ func (fs *FileSystem) buildContext(name string, file *IterFile) (ctx Context, er
 	if ctor, ok := fs.fileContexts[name]; ok {
 		ctx, err = ctor(ctx)
 		if err != nil {
+			if errors.Is(err, mx.ErrSkipFile) {
+				return nil, nil
+			}
 			return nil, err
 		}
 	}
@@ -424,4 +440,193 @@ func (fs *FileSystem) AddFileContext(name string, f func(baseCtx Context) (Conte
 		fs.fileContexts = make(map[string]ctxCtor)
 	}
 	fs.fileContexts[name] = f
+}
+
+// AddFileContextIfScope
+func (fs *FileSystem) AddFileContextIfScope(name string, scope string, f func(baseCtx Context) (Context, error)) {
+	fs.fileContexts[name] = func(baseCtx Context) (Context, error) {
+		if baseCtx.Value("Scope").(string) == scope {
+			return f(baseCtx)
+		}
+		return baseCtx, nil
+	}
+}
+
+func (fs *FileSystem) GetProtoOptions(baseCtx Context) []*ProtoOption {
+	return []*ProtoOption{
+		{
+			OptionName: "grpc.gateway.protoc_gen_openapiv2.options.openapiv2_swagger",
+			OptionValue: ProtoOptionValue{
+				Values: []OptionValue{
+					{
+						Key: "info",
+						Val: "{version: \"1.0\"}",
+					},
+					{
+						Key: "external_docs",
+						Val: "{url: \"" + baseCtx.Value("FullPackage").(string) + "/gen/proto" + "\", description: \"mx framework api demo\"}",
+					},
+					{
+						Key: "schemes",
+						Val: "[HTTP, HTTPS];",
+					},
+				},
+			},
+		},
+	}
+}
+
+func (fs *FileSystem) GetProtoServices(baseCtx Context, messages map[string]*ProtoMessage, msgIdx []string) []*ProtoService {
+	var (
+		services    []*ProtoService
+		serviceName = baseCtx.Value("ServiceName").(string)
+		srv         = &ProtoService{
+			ServiceName: utils.CamelCase(serviceName),
+		}
+		methods []*ProtoMethod
+	)
+
+	services = append(services, srv)
+	for _, m := range baseCtx.Value("Methods").([]*cli.Method) {
+		inputMessage := &ProtoMessage{
+			MessageName: utils.CamelCase(m.Input.Name),
+			Fields: func() []*ProtoField {
+				var fields []*ProtoField
+				for _, f := range m.Input.Fields {
+					fields = append(fields, &ProtoField{
+						FieldName: f.Name,
+						FieldType: f.Type,
+					})
+				}
+				return fields
+			}(),
+		}
+
+		outputMessage := &ProtoMessage{
+			MessageName: utils.CamelCase(m.Output.Name),
+			Fields: func() []*ProtoField {
+				var fields []*ProtoField
+				for _, f := range m.Output.Fields {
+					fields = append(fields, &ProtoField{
+						FieldName: f.Name,
+						FieldType: f.Type,
+					})
+				}
+				return fields
+			}(),
+		}
+
+		methods = append(methods, &ProtoMethod{
+			Method: m.Name,
+			Input:  inputMessage,
+			Output: outputMessage,
+			Options: func() []*ProtoOption {
+				var (
+					options    []*ProtoOption
+					httpMethod = m.HttpMethod
+				)
+
+				if httpMethod == "" {
+					httpMethod = "get"
+				}
+
+				if m.Path != "" {
+					options = append(options, &ProtoOption{
+						OptionName: "google.api.http",
+						OptionValue: ProtoOptionValue{
+							Values: []OptionValue{
+								{
+									Key: utils.Lower(httpMethod),
+									Val: quote(m.Path),
+								},
+							},
+						},
+					})
+				}
+
+				options = append(options, &ProtoOption{
+					OptionName: "grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation",
+					OptionValue: ProtoOptionValue{
+						Values: []OptionValue{
+							{
+								Key: "summary",
+								Val: quote(m.Name),
+							},
+							{
+								Key: "tags",
+								Val: quote(serviceName),
+							},
+						},
+					},
+				})
+
+				return options
+			}(),
+		})
+
+		if _, ok := messages[inputMessage.MessageName]; !ok {
+			messages[inputMessage.MessageName] = inputMessage
+			msgIdx = append(msgIdx, inputMessage.MessageName)
+		}
+
+		if _, ok := messages[outputMessage.MessageName]; !ok {
+			messages[outputMessage.MessageName] = outputMessage
+			msgIdx = append(msgIdx, outputMessage.MessageName)
+		}
+	}
+	srv.Methods = methods
+
+	return services
+}
+
+// 在 service.go 中添加以下方法
+
+func (fs *FileSystem) GetServiceMethods(methods []*cli.Method) []Method {
+	var ms []Method
+	for _, m := range methods {
+		ms = append(ms, Method{
+			Name: utils.CamelCase(m.Name),
+			InputArgs: func() []Type {
+				var ts []Type
+
+				// first is context.Context
+				ts = append(ts, Type{
+					Module: "context",
+					Define: "Context",
+					Name:   "ctx",
+				})
+
+				ts = append(ts, Type{
+					Module: "pb",
+					Define: m.Input.Name,
+					IsPtr:  true,
+					Name:   "req",
+				})
+
+				return ts
+			}(),
+			OutputArgs: func() []Type {
+				var ts []Type
+				ts = append(ts, Type{
+					Module: "pb",
+					Define: m.Output.Name,
+					IsPtr:  true,
+					Name:   "resp",
+				})
+
+				// add error
+				ts = append(ts, Type{
+					Define: "error",
+					Name:   "err",
+				})
+				return ts
+			}(),
+			HttpMethod: m.HttpMethod,
+		})
+	}
+	return ms
+}
+
+func quote(s string) string {
+	return strconv.Quote(s)
 }

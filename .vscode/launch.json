@@ -80,6 +80,22 @@
                 "--key",
                 "database.driver=mysql",
             ]
+        },
+        {
+            "name": "gen add service",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/cmd",
+            "cwd": "${workspaceFolder}",
+            "args": [
+                "add",
+                "service",
+                "--name",
+                "test",
+                "--output",
+                "_example"
+            ]
         }
     ]
 }

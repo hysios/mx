@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/hysios/mx"
 	"github.com/hysios/mx/gen"
 	"github.com/hysios/mx/internal/cli"
 	"github.com/hysios/mx/utils"
@@ -261,6 +262,10 @@ func init() {
 	})
 
 	Service.AddFileContext("go.mod", func(baseCtx gen.Context) (gen.Context, error) {
+		if baseCtx.Value("Scope").(string) == "Add" {
+			return baseCtx, mx.ErrSkipFile
+		}
+
 		return &gen.GomodContext{
 			Context:       baseCtx,
 			ModulePackage: baseCtx.Value("FullPackage").(string),
@@ -286,6 +291,10 @@ func init() {
 				},
 			}
 		)
+
+		if baseCtx.Value("Scope").(string) == "Add" {
+			return baseCtx, mx.ErrSkipFile
+		}
 
 		return goctx, nil
 	})

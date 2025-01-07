@@ -35,6 +35,7 @@ require (
 	github.com/yoheimuta/go-protoparser/v4 v4.7.0
 	go.uber.org/multierr v1.10.0
 	go.uber.org/zap v1.25.0
+	golang.org/x/mod v0.17.0
 	golang.org/x/net v0.26.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20240604185151-ef581f913117
 	google.golang.org/grpc v1.66.0

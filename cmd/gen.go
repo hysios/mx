@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path"
 	"path/filepath"
@@ -11,7 +12,23 @@ import (
 	"github.com/hysios/mx/internal/gen/template"
 	"github.com/hysios/mx/utils"
 	"github.com/urfave/cli/v2"
+	"golang.org/x/mod/modfile"
 )
+
+func getModuleName(dir string) (string, error) {
+	gomodPath := filepath.Join(dir, "go.mod")
+	content, err := os.ReadFile(gomodPath)
+	if err != nil {
+		return "", err
+	}
+
+	f, err := modfile.Parse("go.mod", content, nil)
+	if err != nil {
+		return "", err
+	}
+
+	return f.Module.Mod.Path, nil
+}
 
 func genSubCmds() []*cli.Command {
 	return []*cli.Command{
@@ -146,7 +163,109 @@ func genSubCmds() []*cli.Command {
 				return nil
 			},
 		},
+		{
+			Name:  "add",
+			Usage: "add a new service to existing project",
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:     "name",
+					Usage:    "service package name",
+					Required: true,
+				},
+				&cli.StringFlag{
+					Name:  "pkg-name",
+					Usage: "service package name",
+				},
+				&cli.StringFlag{
+					Name:       "service-name",
+					Usage:      "service name",
+					HasBeenSet: true,
+					Action: func(c *cli.Context, v string) error {
+						if v == "" {
+							v = utils.CamelCase(c.String("name")) + "Service"
+							_ = c.Set("service-name", v)
+						}
+						return nil
+					},
+				},
+				&cli.BoolFlag{
+					Name:  "gen-proto",
+					Usage: "generate a new service with protobuf file",
+				},
+				&cli.BoolFlag{
+					Name:    "overwrite",
+					Usage:   "overwrite existing files",
+					Aliases: []string{"y"},
+				},
+				&cli.StringFlag{
+					Name:    "output",
+					Usage:   "output directory",
+					Aliases: []string{"o"},
+				},
+				methodFlag(),
+				crudFlag(),
+				&cli.StringFlag{
+					Name:  "namespace",
+					Usage: "service namespace",
+				},
+			},
+			Action: func(c *cli.Context) error {
+				// Get gateway namespace from gateway dir if not specified
+				ns := c.String("namespace")
+				if ns == "" {
+					p, _ := os.Getwd()
+					ns = getGatewayParent(p)
+				}
+
+				if c.String("pkg-name") == "" {
+					getPkgName(c)
+				}
+
+				// Setup service template
+				service := template.AddService
+				service.AddVariable("Name", c.String("name"))
+				service.AddVariable("FullPackage", c.String("pkg-name"))
+				service.AddVariable("ServiceName", c.String("service-name"))
+				service.AddVariable("ServiceDesc", c.String("service-name")+"_ServiceDesc")
+				service.AddVariable("ProtoPkgName", "pb")
+				service.AddVariable("FileProto", "File_proto_"+c.String("name")+"_proto")
+				service.AddVariable("Methods", parseMethods(c.StringSlice("method")))
+				service.AddVariable("Namespace", ns)
+
+				// Generate service files
+				output := c.String("output")
+				if output == "" {
+					curDir, _ := os.Getwd()
+					output = curDir
+				}
+
+				LogError(service.Gen(&gen.Output{
+					Directory: output,
+					Verbose:   c.Bool("verbose"),
+					Overwrite: c.Bool("overwrite"),
+				}))
+
+				return nil
+			},
+		},
 	}
+}
+
+// getPkgName
+func getPkgName(c *cli.Context) (string, error) {
+	// Get current directory
+	curDir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+
+	// Get module name from go.mod
+	modName, err := getModuleName(curDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to get module name: %v", err)
+	}
+	c.Set("pkg-name", modName)
+	return modName, nil
 }
 
 func methodFlag() cli.Flag {
@@ -207,4 +326,11 @@ func getGatewayParent(output string) string {
 	}
 
 	return strings.TrimPrefix(path.Base(strings.TrimSuffix(output, "/gateway")), "/")
+}
+
+// Helper function to update gateway imports
+func updateGatewayImports(gatewayDir string, pkgName string) error {
+	// This function would update the gateway's imports to include the new service
+	// Implementation depends on your gateway structure
+	return nil
 }
