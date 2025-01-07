@@ -10,6 +10,8 @@ MX 是一个轻量级且灵活的微服务网关框架。
 go install github.com/hysios/mx/cmd/mx@latest
 ```
 
+这将在你的 `$GOPATH/bin` 目录下安装 `mx` 命令行工具。
+
 ## 命令使用说明
 
 ### 生成命令

@@ -10,6 +10,8 @@ Install the MX CLI tool:
 go install github.com/hysios/mx/cmd/mx@latest
 ```
 
+This will install the `mx` command line tool to your `$GOPATH/bin` directory.
+
 ## Commands
 
 ### Generate Commands
