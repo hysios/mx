@@ -19,7 +19,7 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.15.0
 	github.com/hashicorp/consul/api v1.28.2
 	github.com/hysios/utils v0.0.13
-	github.com/hysios/x v0.0.1
+	github.com/hysios/x v0.0.11
 	github.com/iancoleman/strcase v0.2.0
 	github.com/kr/pretty v0.3.1
 	github.com/pkg/errors v0.9.1
