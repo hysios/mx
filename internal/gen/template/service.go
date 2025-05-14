@@ -262,7 +262,7 @@ func init() {
 	})
 
 	Service.AddFileContext("go.mod", func(baseCtx gen.Context) (gen.Context, error) {
-		if baseCtx.Value("Scope").(string) == "Add" {
+		if x, ok := baseCtx.Value("Scope").(string); ok && x == "Add" {
 			return baseCtx, mx.ErrSkipFile
 		}
 
@@ -292,7 +292,7 @@ func init() {
 			}
 		)
 
-		if baseCtx.Value("Scope").(string) == "Add" {
+		if x, ok := baseCtx.Value("Scope").(string); ok && x == "Add" {
 			return baseCtx, mx.ErrSkipFile
 		}
 

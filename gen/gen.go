@@ -445,7 +445,7 @@ func (fs *FileSystem) AddFileContext(name string, f func(baseCtx Context) (Conte
 // AddFileContextIfScope
 func (fs *FileSystem) AddFileContextIfScope(name string, scope string, f func(baseCtx Context) (Context, error)) {
 	fs.fileContexts[name] = func(baseCtx Context) (Context, error) {
-		if baseCtx.Value("Scope").(string) == scope {
+		if x, ok := baseCtx.Value("Scope").(string); ok && x == scope {
 			return f(baseCtx)
 		}
 		return baseCtx, nil
