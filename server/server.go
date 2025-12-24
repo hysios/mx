@@ -3,7 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net"
 	"os"
 	"os/signal"
@@ -365,19 +365,24 @@ func (s *Server) ServiceDescs() []discovery.ServiceDesc {
 
 // loadPersistentPort
 func (s *Server) loadPersistentPort() string {
-	// open current dir .PORT file
+	// open current dir port file
 	// if not exist create it
 	// if exist read it
 	// read text for number
 	// if is new port and save it
 	// at last return port
 
-	f, err := os.OpenFile(".PORT", os.O_RDONLY, 0666)
+	filename := s.opts.PersistentPortFile
+	if filename == "" {
+		filename = ".PORT"
+	}
+
+	f, err := os.OpenFile(filename, os.O_RDONLY, 0666)
 	if err != nil {
 		return ""
 	}
 	defer f.Close()
-	b, err := ioutil.ReadAll(f)
+	b, err := io.ReadAll(f)
 	if err != nil {
 		return ""
 	}
@@ -393,7 +398,12 @@ func (s *Server) loadPersistentPort() string {
 
 // savePersistentPort
 func (s *Server) savePersistentPort(port string) error {
-	f, err := os.OpenFile(".PORT", os.O_RDWR|os.O_CREATE, 0666)
+	filename := s.opts.PersistentPortFile
+	if filename == "" {
+		filename = ".PORT"
+	}
+
+	f, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
 		return err
 	}

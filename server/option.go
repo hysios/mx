@@ -14,11 +14,12 @@ type RegisterOptionFunc func(*RegisterOption) error
 type Registrar func(s *grpc.Server, impl any)
 
 type ServerOption struct {
-	Namespace      string
-	ServiceDesc    *grpc.ServiceDesc
-	Logger         *zap.Logger
-	FileDescriptor protoreflect.FileDescriptor
-	PersistentPort bool
+	Namespace          string
+	ServiceDesc        *grpc.ServiceDesc
+	Logger             *zap.Logger
+	FileDescriptor     protoreflect.FileDescriptor
+	PersistentPort     bool
+	PersistentPortFile string
 }
 
 type ServerOptionFunc func(*ServerOption) error
@@ -52,9 +53,14 @@ func WithFileDescriptor(fd protoreflect.FileDescriptor) ServerOptionFunc {
 }
 
 // 持久端口
-func WithPersistentPort() ServerOptionFunc {
+func WithPersistentPort(filename ...string) ServerOptionFunc {
 	return func(o *ServerOption) error {
 		o.PersistentPort = true
+		if len(filename) > 0 && filename[0] != "" {
+			o.PersistentPortFile = filename[0]
+		} else {
+			o.PersistentPortFile = ".PORT"
+		}
 		return nil
 	}
 }
